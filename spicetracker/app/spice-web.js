@@ -14,6 +14,55 @@ window.SpiceWeb = {
       client.requestAccessToken();
     });
   },
+  /** One-shot: the next click renews Google access (browsers block the window without a click). */
+  armRenew(clientId, scope, hint) {
+    return new Promise((resolve) => {
+      const onClick = () => {
+        document.removeEventListener("click", onClick, true);
+        SpiceWeb.signIn(clientId, scope, "", hint).then(resolve);
+      };
+      document.addEventListener("click", onClick, true);
+    });
+  },
+  /** Stored secrets, decrypted with this browser's non-extractable key. Unreadable entries are skipped. */
+  async loadSecrets() {
+    const out = {};
+    try {
+      const names = Object.keys(localStorage).filter((k) => k.startsWith(SECRET_PREFIX));
+      if (!names.length) return JSON.stringify(out);
+      const key = await deviceKey(false);
+      if (!key) return JSON.stringify(out);
+      for (const k of names) {
+        try {
+          const raw = Uint8Array.from(atob(localStorage.getItem(k)), (c) => c.charCodeAt(0));
+          const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.subarray(0, 12) }, key, raw.subarray(12));
+          out[k.slice(SECRET_PREFIX.length)] = new TextDecoder().decode(plain);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return JSON.stringify(out);
+  },
+  saveSecret(k, v) {
+    secretQueue = secretQueue.then(async () => {
+      if (v === null || v === undefined) return localStorage.removeItem(SECRET_PREFIX + k);
+      const key = await deviceKey(true);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(v)));
+      const all = new Uint8Array(12 + sealed.length);
+      all.set(iv); all.set(sealed, 12);
+      localStorage.setItem(SECRET_PREFIX + k, toBase64(all));
+    }).catch(() => {});
+  },
+  /** Sign-out: remove everything except appearance, including the browser key. */
+  clearSession() {
+    secretQueue = secretQueue.then(async () => {
+      for (const k of Object.keys(localStorage))
+        if (k.startsWith("spicetracker.") && !k.startsWith("spicetracker.theme.")) localStorage.removeItem(k);
+      const db = await openKeyDb();
+      await idb(db.transaction("keys", "readwrite").objectStore("keys").delete("device"));
+      db.close();
+    }).catch(() => {});
+  },
   revoke(token) { try { google.accounts.oauth2.revoke(token, () => {}); } catch (_) {} },
   async http(method, url, headers, body) {
     const res = await fetch(url, { method, headers: JSON.parse(headers), body: body || undefined, cache: "no-store" });
@@ -43,6 +92,30 @@ window.SpiceWeb = {
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   },
 };
+
+const SECRET_PREFIX = "spicetracker.secret.";
+let secretQueue = Promise.resolve();
+
+function idb(req) {
+  return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+}
+function openKeyDb() {
+  const req = indexedDB.open("spicetracker", 1);
+  req.onupgradeneeded = () => req.result.createObjectStore("keys");
+  return idb(req);
+}
+/** An AES key the page can use but can't read or export. */
+async function deviceKey(create) {
+  const db = await openKeyDb();
+  try {
+    let key = await idb(db.transaction("keys").objectStore("keys").get("device"));
+    if (!key && create) {
+      key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+      await idb(db.transaction("keys", "readwrite").objectStore("keys").put(key, "device"));
+    }
+    return key || null;
+  } finally { db.close(); }
+}
 
 function toBase64(bytes) {
   let s = "";
