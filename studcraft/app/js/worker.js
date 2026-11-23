@@ -15,6 +15,15 @@ const ALLOWED = {
     return { text: name.endsWith('.csv') ? sanitizeCsv(text) : text, name };
   },
   summary: () => engine.exportSummary(),
+  rebuild: ({ grid, config: c }) => engine.rebuildMosaic(
+    new Int32Array(grid), c.width, c.height, c.style, c.backing, c.palette, c.rarity,
+    c.tolerance, c.dither, c.legal, c.brightness, c.contrast, c.saturation,
+  ),
+  pro: ({ kind, title }) => {
+    const label = String(title ?? '').slice(0, 200);
+    const data = engine.exportProBytes(String(kind), label);
+    return { name: engine.exportProName(String(kind), label), bytes: new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice() };
+  },
 };
 
 self.onmessage = ({ data }) => {

@@ -77,8 +77,13 @@
   <div class="stack preview-col">
     <div class="card">
       <div class="row-between"><h2 id="sourceName">Mosaic preview</h2><span id="busy" class="pill" hidden>Updating…</span></div>
+      <div id="draftBanner" class="draft" hidden>
+        <p id="draftText"></p>
+        <div class="btn-row"><button id="draftRestore" class="btn" type="button">Restore edits</button><button id="draftDiscard" class="btn ghost" type="button">Discard</button></div>
+      </div>
       <div class="canvas-wrap"><canvas id="mosaic" width="640" height="640" aria-label="Mosaic preview"></canvas></div>
       <div id="stats" class="stats"></div>
+      <button id="editBtn" class="btn full edit-open" type="button">Edit mosaic</button>
     </div>
     <div class="card" id="sourceCard" hidden>
       <h2>Original</h2>
@@ -109,6 +114,7 @@
 </section>
 
 <section id="tab-export" role="tabpanel" aria-labelledby="tabbtn-export" hidden>
+  <div class="card"><h2>Building files</h2><p class="hint">Made on this device from the mosaic as edited. Nothing is uploaded.</p><div id="proList" class="list"></div></div>
   <div class="card"><h2>Parts list CSV</h2><div id="csvList" class="list"></div></div>
   <div class="card"><h2>Marketplace carts</h2><p class="hint">Files are made on this device. Nothing is sent until you upload a file to a store yourself.</p><div id="cartList" class="list"></div></div>
   <div class="card"><h2>Image and summary</h2><div class="btn-row">
@@ -189,13 +195,97 @@
     </div>
     <div class="card">
       <div class="row-between"><h2>Your saved mosaics</h2><button id="cloudRefresh" class="btn ghost" type="button">Refresh</button></div>
-      <p class="hint">Saved mosaics do not include an image. Samples can be rebuilt. For your own images, the settings are applied to the image open now. Brightness, contrast, and saturation are not saved.</p>
+      <p class="hint">Saved mosaics do not include an image or manual stud edits. Samples can be rebuilt. For your own images, the settings are applied to the image open now. Brightness, contrast, and saturation are not saved.</p>
       <p id="libraryStatus" class="hint library-status" role="status"></p>
       <div id="libraryList" class="list"></div>
     </div>
   </div>
 </section>
 </main>
+
+<section id="editor" class="editor" aria-label="Mosaic editor" hidden>
+  <div class="ed-bar">
+    <button id="edDone" class="btn" type="button">Done</button>
+    <button id="edUndo" class="btn ghost" type="button" title="Undo (Ctrl or Cmd+Z)">Undo</button>
+    <button id="edRedo" class="btn ghost" type="button" title="Redo (Shift+Ctrl or Cmd+Z)">Redo</button>
+    <button id="edRevert" class="btn ghost" type="button">Revert all</button>
+    <button id="edZoomOut" class="btn ghost" type="button" aria-label="Zoom out" title="Zoom out (-)">−</button>
+    <button id="edZoomIn" class="btn ghost" type="button" aria-label="Zoom in" title="Zoom in (+)">+</button>
+    <button id="edFit" class="btn ghost" type="button" title="Fit (0)">Fit</button>
+    <span id="edCoord" class="hint"></span>
+    <span id="edEdited" class="pill"></span>
+  </div>
+  <div class="ed-body">
+    <div class="ed-stage"><canvas id="edCanvas" tabindex="0" aria-label="Mosaic stud grid. Drag to paint."></canvas></div>
+    <div class="ed-side">
+      <div class="ed-tabs" role="tablist" aria-label="Editor panels">
+        <button id="edTab-tools" role="tab" type="button" aria-selected="true">Tools</button>
+        <button id="edTab-colors" role="tab" type="button" aria-selected="false">Colors</button>
+        <button id="edTab-image" role="tab" type="button" aria-selected="false">Image</button>
+      </div>
+      <div id="edPanel-tools" class="ed-panel">
+        <div class="ed-tools">
+          <button type="button" class="btn ghost" data-tool="brush">Brush (B)</button>
+          <button type="button" class="btn ghost" data-tool="erase">Restore (E)</button>
+          <button type="button" class="btn ghost" data-tool="fill">Fill (F)</button>
+          <button type="button" class="btn ghost" data-tool="pick">Pick (I)</button>
+          <button type="button" class="btn ghost" data-tool="replace">Replace (R)</button>
+          <button type="button" class="btn ghost" data-tool="rect">Rectangle (S)</button>
+          <button type="button" class="btn ghost" data-tool="pan">Pan (H)</button>
+        </div>
+        <label class="field">Brush size <output id="edSizeOut"></output><input id="edSize" type="range" min="1" max="8" step="1" value="1"></label>
+        <p class="label">Mirror drawing (M)</p>
+        <div class="ed-tools">
+          <button type="button" class="btn ghost" data-mirror="NONE">Off</button>
+          <button type="button" class="btn ghost" data-mirror="HORIZONTAL">Left-right</button>
+          <button type="button" class="btn ghost" data-mirror="VERTICAL">Top-bottom</button>
+          <button type="button" class="btn ghost" data-mirror="BOTH">Both</button>
+        </div>
+        <label class="switch"><input id="edGrid" type="checkbox" checked><span>Grid lines (G)</span></label>
+        <p class="hint">Drag to paint. Pinch or use the mouse wheel to zoom. Brush size: [ and ].</p>
+      </div>
+      <div id="edPanel-colors" class="ed-panel" hidden>
+        <p id="edCurrent" class="ed-current"></p>
+        <label class="field">Search name or BrickLink ID<input id="edSearch" type="search" maxlength="40" autocomplete="off" spellcheck="false"></label>
+        <div class="two">
+          <label class="field">Palette<select id="edPalette"></select></label>
+          <label class="field">Availability<select id="edTier"><option value="">Any</option><option value="COMMON">Common</option><option value="UNCOMMON">Uncommon</option><option value="RARE_RETIRED">Rare</option></select></label>
+        </div>
+        <div id="edRecentWrap" hidden><p class="label">Recent</p><div id="edRecent" class="ed-swatches"></div></div>
+        <p class="label">In this mosaic</p><div id="edUsed" class="ed-swatches"></div>
+        <p class="label">Catalog (<span id="edCatalogCount"></span>)</p><div id="edCatalog" class="ed-swatches"></div>
+        <p class="label">Nearest brick color</p>
+        <div class="ed-hex"><input id="edColorInput" type="color" value="#3366cc" aria-label="Custom color"><input id="edHex" type="text" maxlength="7" placeholder="#3366CC" autocomplete="off" spellcheck="false" aria-label="Hex color"></div>
+        <p id="edNearest" class="hint"></p>
+        <button id="edNearestUse" class="btn full" type="button" hidden>Use this color</button>
+      </div>
+      <div id="edPanel-image" class="ed-panel" hidden>
+        <div class="ed-tools">
+          <button type="button" class="btn ghost" data-tweak="rotateLeft">Rotate left</button>
+          <button type="button" class="btn ghost" data-tweak="rotateRight">Rotate right</button>
+          <button type="button" class="btn ghost" data-tweak="flipH">Flip horizontal</button>
+          <button type="button" class="btn ghost" data-tweak="flipV">Flip vertical</button>
+        </div>
+        <p class="label">Crop from each edge</p>
+        <label class="field">Left <output id="edCropLOut">0%</output><input id="edCropL" type="range" min="0" max="45" value="0"></label>
+        <label class="field">Top <output id="edCropTOut">0%</output><input id="edCropT" type="range" min="0" max="45" value="0"></label>
+        <label class="field">Right <output id="edCropROut">0%</output><input id="edCropR" type="range" min="0" max="45" value="0"></label>
+        <label class="field">Bottom <output id="edCropBOut">0%</output><input id="edCropB" type="range" min="0" max="45" value="0"></label>
+        <div class="btn-row"><button id="edCropApply" class="btn" type="button">Apply crop</button><button id="edImageReset" class="btn ghost" type="button">Reset image</button></div>
+        <label class="field">Brightness<input id="edBrightness" type="range" min="-0.35" max="0.35" step="0.01"></label>
+        <label class="field">Contrast<input id="edContrast" type="range" min="0.7" max="1.5" step="0.01"></label>
+        <label class="field">Saturation<input id="edSaturation" type="range" min="0.5" max="1.6" step="0.01"></label>
+        <p class="hint">Image changes rebuild the mosaic. You will be asked first if that would discard stud edits.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<dialog id="discardDialog" aria-labelledby="discardTitle">
+  <h2 id="discardTitle">Discard stud edits?</h2>
+  <p id="discardText" class="hint"></p>
+  <div class="btn-row"><button id="discardYes" class="btn danger" type="button">Discard and rebuild</button><button id="discardNo" class="btn" type="button">Keep edits</button></div>
+</dialog>
 
 <footer class="footer">
   <p>Published by DrSeussFreak Inc. <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a> · <a href="https://drseussfreak.github.io/studcraft/privacy/" rel="noopener noreferrer">Privacy</a></p>

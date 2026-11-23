@@ -8,6 +8,7 @@ import { colorMap, drawMosaic, drawStep } from './render.js';
 import { FILE_NAME, MAX_FILE_BYTES, VaultError, describePayload, openVault, passphraseProblem, sealVault, vaultTheme, webTheme } from './settings-vault.js';
 import { SESSION_HINT, createCloud } from './cloud.js';
 import { accountView, authMessage, cloudMessage } from './cloud-model.js';
+import { clearDraft, createEditor, readDraft } from './editor.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,6 +28,7 @@ const money = (v) => `$${Number(v).toFixed(2)}`;
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* blocked storage is fine */ } },
+  remove(k) { try { localStorage.removeItem(k); } catch { /* blocked storage is fine */ } },
 };
 const vaultStorage = { getItem: (k) => localStore()?.getItem(k) ?? null, setItem: (k, v) => localStore()?.setItem(k, v), removeItem: (k) => localStore()?.removeItem(k) };
 function localStore() { try { return window.localStorage; } catch { return null; } }
@@ -120,17 +122,13 @@ function setSource(image, width, height, name, sampleId = null) {
     argb[i] = (255 << 24) | (rgba[p] << 16) | (rgba[p + 1] << 8) | rgba[p + 2];
   }
   state.source = { argb, width: w, height: h };
+  state.pristine = { argb: argb.slice(), width: w, height: h };
   clearTimeout(statusTimer);
   $('status').hidden = true;
   state.name = name;
   state.sampleId = sampleId;
   $('sourceName').textContent = name;
-  const preview = $('sourceCanvas');
-  const previewScale = Math.min(1, 480 / Math.max(w, h));
-  preview.width = Math.round(w * previewScale);
-  preview.height = Math.round(h * previewScale);
-  preview.getContext('2d').drawImage(canvas, 0, 0, preview.width, preview.height);
-  $('sourceCard').hidden = false;
+  showSourcePreview();
   const [gw, gh] = fitDimensions(w, h);
   $('gridW').value = gw;
   $('gridH').value = gh;
@@ -138,7 +136,29 @@ function setSource(image, width, height, name, sampleId = null) {
   scheduleConvert(true);
 }
 
+function showSourcePreview() {
+  const { argb, width: w, height: h } = state.source;
+  const full = document.createElement('canvas');
+  full.width = w;
+  full.height = h;
+  const data = new ImageData(w, h);
+  for (let i = 0, p = 0; i < argb.length; i++, p += 4) {
+    data.data[p] = (argb[i] >> 16) & 255;
+    data.data[p + 1] = (argb[i] >> 8) & 255;
+    data.data[p + 2] = argb[i] & 255;
+    data.data[p + 3] = 255;
+  }
+  full.getContext('2d').putImageData(data, 0, 0);
+  const preview = $('sourceCanvas');
+  const previewScale = Math.min(1, 480 / Math.max(w, h));
+  preview.width = Math.max(1, Math.round(w * previewScale));
+  preview.height = Math.max(1, Math.round(h * previewScale));
+  preview.getContext('2d').drawImage(full, 0, 0, preview.width, preview.height);
+  $('sourceCard').hidden = false;
+}
+
 async function loadBytes(bytes, name) {
+  if (!await confirmDiscard()) return;
   const info = validateImageBytes(bytes);
   let bitmap;
   try {
@@ -163,7 +183,8 @@ async function openFile(file) {
   }
 }
 
-function loadSample(sample, then) {
+async function loadSample(sample, then) {
+  if (!await confirmDiscard()) return;
   const image = new Image();
   image.onload = () => {
     setSource(image, image.naturalWidth, image.naturalHeight, sample.title, sample.id);
@@ -214,6 +235,16 @@ let timer;
 let running = false;
 let again = false;
 function scheduleConvert(now = false) {
+  if (editor?.isEdited()) {
+    const wanted = readConfig();
+    writeConfig(state.applied);
+    confirmDiscard().then((ok) => {
+      if (!ok) return;
+      writeConfig(wanted);
+      scheduleConvert(now);
+    });
+    return;
+  }
   state.requested += 1;
   syncLabels();
   clearTimeout(timer);
@@ -226,18 +257,25 @@ async function runConvert() {
   running = true;
   const building = state.requested;
   $('busy').hidden = false;
+  $('editBtn').disabled = true;
   try {
     const copy = state.source.argb.slice();
-    const json = await callWorker('convert', { argb: copy.buffer, width: state.source.width, height: state.source.height, config: readConfig() }, [copy.buffer]);
+    const sentConfig = readConfig();
+    const json = await callWorker('convert', { argb: copy.buffer, width: state.source.width, height: state.source.height, config: sentConfig }, [copy.buffer]);
     state.result = JSON.parse(json);
     state.built = building;
+    state.applied = sentConfig;
     state.step = Math.min(state.step, Math.max(0, state.result.steps.length - 1));
+    editor?.load(state.result.width, state.result.height, sentConfig, state.result.grid);
     renderAll();
+    offerDraft?.();
+    offerDraft = null;
   } catch (e) {
     notify(e instanceof UserError ? e.message : 'StudCraft could not build that mosaic.', true);
   } finally {
     running = false;
     $('busy').hidden = true;
+    $('editBtn').disabled = false;
     if (again) { again = false; runConvert(); }
   }
 }
@@ -329,8 +367,41 @@ const needResult = () => {
   return false;
 };
 
+const PRO_EXPORTS = [
+  { id: 'POSTER_PNG', title: 'Poster PNG', text: 'High-resolution picture of the finished mosaic.', type: 'image/png' },
+  { id: 'STUD_MAP_PNG', title: 'Stud map PNG', text: 'Numbered chart with stud coordinates and a color key.', type: 'image/png' },
+  { id: 'INSTRUCTIONS_PDF', title: 'Building instructions PDF', text: 'Cover, parts list with color names and IDs, section map, and numbered steps.', type: 'application/pdf' },
+  { id: 'STUDIO_IO', title: 'BrickLink Studio (.io)', text: 'Model with parts, colors, backing, and build steps.', type: 'application/octet-stream' },
+  { id: 'LDRAW_LDR', title: 'LDraw model (.ldr)', text: 'Plain LDraw with build steps.', type: 'text/plain' },
+  { id: 'LDRAW_MPD', title: 'LDraw multi-part (.mpd)', text: 'Separate backing and surface submodels.', type: 'text/plain' },
+];
+
+async function downloadPro(item, button) {
+  if (!needResult()) return;
+  button.disabled = true;
+  try {
+    await editor.flush();
+    const out = await callWorker('pro', { kind: item.id, title: state.name });
+    const url = URL.createObjectURL(new Blob([out.bytes], { type: item.type }));
+    const link = el('a', { href: url, download: out.name });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  } catch {
+    notify('StudCraft could not make that file.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderExports() {
   const c = state.catalog;
+  if (!$('proList').childElementCount) {
+    $('proList').replaceChildren(...PRO_EXPORTS.map((item) => el('div', { class: 'list-item' },
+      el('div', {}, el('strong', { text: item.title }), el('p', { text: item.text })),
+      el('div', { class: 'list-actions' }, el('button', { class: 'btn ghost', type: 'button', text: 'Download', 'data-pro': item.id, onclick: (e) => downloadPro(item, e.currentTarget) })))));
+  }
   $('csvList').replaceChildren(...c.csvFormats.map((f) => el('div', { class: 'list-item' },
     el('div', {}, el('strong', { text: f.title }), el('p', { text: f.description })),
     el('div', { class: 'list-actions' }, el('button', { class: 'btn ghost', type: 'button', text: 'Download CSV', 'data-csv': f.id, onclick: async () => {
@@ -358,6 +429,125 @@ function renderExports() {
         } }),
         link));
   }));
+}
+
+/* ---------- stud editor ---------- */
+let editor = null;
+let offerDraft = null;
+let discardAnswer = null;
+
+function writeConfig(c) {
+  if (!c) return;
+  $('gridW').value = c.width;
+  $('gridH').value = c.height;
+  for (const id of ['style', 'backing', 'palette', 'rarity', 'tolerance', 'brightness', 'contrast', 'saturation']) $(id).value = String(c[id]);
+  $('dither').checked = c.dither;
+  $('legal').checked = c.legal;
+  syncPreset();
+  syncLabels();
+}
+
+/** Resolves true when nothing would be lost, or the person agreed to lose it. */
+function confirmDiscard() {
+  if (!editor?.isEdited()) return Promise.resolve(true);
+  if (discardAnswer) return discardAnswer.promise;
+  const n = editor.editedCount();
+  $('discardText').textContent = `This rebuilds the mosaic from the image and discards ${n} edited stud${n === 1 ? '' : 's'}.`;
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  discardAnswer = { promise, resolve };
+  $('discardDialog').showModal();
+  return promise;
+}
+
+function answerDiscard(yes) {
+  const answer = discardAnswer;
+  discardAnswer = null;
+  if ($('discardDialog').open) $('discardDialog').close();
+  if (yes) editor.discard();
+  answer?.resolve(yes);
+}
+
+async function applyEdited(grid, config) {
+  const copy = grid.slice();
+  const json = await callWorker('rebuild', { grid: copy.buffer, config }, [copy.buffer]);
+  state.result = JSON.parse(json);
+  state.step = Math.min(state.step, Math.max(0, state.result.steps.length - 1));
+  renderAll();
+}
+
+async function tweakSource(op, l, t, r, b) {
+  if (!state.source) { notify('Open an image first.', true); return; }
+  if (!await confirmDiscard()) return;
+  const out = helpers.tweakImage(state.source.argb, state.source.width, state.source.height, op, l, t, r, b);
+  state.source = { width: out[0], height: out[1], argb: Int32Array.from(out.subarray(2)) };
+  showSourcePreview();
+  if (op !== 'flipH' && op !== 'flipV') {
+    const [gw, gh] = fitDimensions(state.source.width, state.source.height);
+    $('gridW').value = gw;
+    $('gridH').value = gh;
+    syncPreset();
+  }
+  scheduleConvert(true);
+}
+
+async function resetSource() {
+  if (!state.pristine) return;
+  if (!await confirmDiscard()) return;
+  state.source = { ...state.pristine, argb: state.pristine.argb.slice() };
+  showSourcePreview();
+  const [gw, gh] = fitDimensions(state.source.width, state.source.height);
+  $('gridW').value = gw;
+  $('gridH').value = gh;
+  syncPreset();
+  scheduleConvert(true);
+}
+
+function setupEditor() {
+  editor = createEditor({
+    engine: helpers, el, store, colors: state.colors, catalog: state.catalog.colors, palettes: state.catalog.palettes,
+    rebuild: applyEdited,
+    onTweak: tweakSource,
+    onResetImage: resetSource,
+    onAdjust: (key, value) => { $(key).value = value; scheduleConvert(true); },
+    sliders: () => ({ brightness: $('brightness').value, contrast: $('contrast').value, saturation: $('saturation').value }),
+    notify,
+    onClose: () => {},
+  });
+  $('editBtn').addEventListener('click', () => { if (needResult()) editor.open(); });
+  $('discardYes').addEventListener('click', () => answerDiscard(true));
+  $('discardNo').addEventListener('click', () => answerDiscard(false));
+  $('discardDialog').addEventListener('cancel', (e) => { e.preventDefault(); answerDiscard(false); });
+  const draft = readDraft(store, state.colors);
+  if (!draft) return;
+  $('draftText').textContent = `You have unsaved stud edits from ${new Date(draft.at).toLocaleString()} (${draft.w}×${draft.h}). They are stored only in this browser. The original image is not stored.`;
+  // Offered after the first conversion, so that conversion can't overwrite restored edits.
+  offerDraft = () => { $('draftBanner').hidden = false; };
+  if (state.result && !running) { offerDraft(); offerDraft = null; }
+  $('draftDiscard').addEventListener('click', () => { clearDraft(store); $('draftBanner').hidden = true; });
+  $('draftRestore').addEventListener('click', async () => {
+    if (!await confirmDiscard()) return;
+    try {
+      const base = readConfig();
+      const safe = (list, value, fallback) => (state.catalog[list].some((x) => x.id === value) ? value : fallback);
+      const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+      const c = draft.config;
+      const config = {
+        width: draft.w, height: draft.h, style: safe('styles', c.style, base.style), backing: safe('backings', c.backing, base.backing),
+        palette: safe('palettes', c.palette, base.palette), rarity: safe('rarities', c.rarity, base.rarity),
+        tolerance: num(c.tolerance, 0, 32, base.tolerance), dither: c.dither === true, legal: c.legal !== false,
+        brightness: num(c.brightness, -0.35, 0.35, 0), contrast: num(c.contrast, 0.7, 1.5, 1.08), saturation: num(c.saturation, 0.5, 1.6, 1.12),
+      };
+      writeConfig(config);
+      state.applied = config;
+      editor.load(draft.w, draft.h, config, draft.original, draft.grid);
+      await applyEdited(draft.grid, config);
+      $('draftBanner').hidden = true;
+      editor.open();
+    } catch {
+      notify('Those saved edits could not be restored.', true);
+    }
+  });
 }
 
 /* ---------- AI ---------- */
@@ -769,7 +959,7 @@ async function saveToLibrary() {
     $('cloudNotes').value = '';
     $('cloudSave').disabled = false;
     await refreshLibrary();
-    if (epoch === library.epoch && library.loaded) libraryMessage('Saved to your Cloud Library.');
+    if (epoch === library.epoch && library.loaded) libraryMessage(editor?.isEdited() ? 'Saved settings and totals. Your stud edits stay in this browser and are not in the Cloud Library.' : 'Saved to your Cloud Library.');
   } catch (e) {
     if (epoch === library.epoch) libraryMessage(cloudMessage(e), true);
   } finally {
@@ -971,6 +1161,7 @@ async function main() {
   $('sizePreset').value = '32x32';
   syncLabels();
   renderExports();
+  setupEditor();
   document.documentElement.dataset.ready = 'true';
   loadSample(SAMPLES[0]);
   restoreAccount();
