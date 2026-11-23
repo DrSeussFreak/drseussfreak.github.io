@@ -506,6 +506,7 @@ function renderExports() {
 /* ---------- stud editor ---------- */
 let editor = null;
 let offerDraft = null;
+let draftPending = false;
 let discardAnswer = null;
 
 function writeConfig(c) {
@@ -577,7 +578,7 @@ async function resetSource() {
 
 async function setupEditor() {
   editor = createEditor({
-    engine: helpers, el, drafts, draftProject: () => secure?.project() ?? null, onEdited: () => secure?.touch(), colors: state.colors, catalog: state.catalog.colors, palettes: state.catalog.palettes,
+    engine: helpers, el, drafts, draftProject: () => secure?.project() ?? null, draftLocked: () => draftPending, onEdited: () => secure?.touch(), colors: state.colors, catalog: state.catalog.colors, palettes: state.catalog.palettes,
     rebuild: applyEdited,
     onTweak: tweakSource,
     onResetImage: resetSource,
@@ -593,11 +594,12 @@ async function setupEditor() {
   $('discardDialog').addEventListener('cancel', (e) => { e.preventDefault(); answerDiscard(false); });
   const draft = readDraft(await drafts.load(), state.colors);
   if (!draft) return;
+  draftPending = true;
   $('draftText').textContent = `You have unsaved stud edits from ${new Date(draft.at).toLocaleString()} (${draft.w}×${draft.h}). They are encrypted and stored only in this browser. The original image is not stored.`;
   // Offered after the first conversion, so that conversion can't overwrite restored edits.
   offerDraft = () => { $('draftBanner').hidden = false; };
   if (state.result && !running) { offerDraft(); offerDraft = null; }
-  $('draftDiscard').addEventListener('click', () => { drafts.clear(); $('draftBanner').hidden = true; });
+  $('draftDiscard').addEventListener('click', () => { draftPending = false; drafts.clear(); $('draftBanner').hidden = true; });
   $('draftRestore').addEventListener('click', async () => {
     if (!await confirmDiscard()) return;
     try {
@@ -619,6 +621,7 @@ async function setupEditor() {
       editor.load(draft.w, draft.h, config, draft.original, draft.grid);
       await applyEdited(draft.grid, config);
       if (draft.project) secure?.setProject(draft.project);
+      draftPending = false;
       $('draftBanner').hidden = true;
       editor.open();
     } catch {

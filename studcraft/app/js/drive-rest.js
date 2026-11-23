@@ -54,8 +54,17 @@ export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch
     if (!SAFE_ID.test(out.id ?? '')) throw new DriveError('fatal');
     return out.id;
   }
+  /** With drive.file, one client may see a file but not the folder another client made. Reuse that file's folder. */
+  async function siblingFolder() {
+    const q = "(name='studcraft-data.enc' or name='studcraft-settings.vault') and trashed=false";
+    const out = await json(`${API}?q=${encodeURIComponent(q)}&pageSize=5&fields=files(parents)`);
+    for (const f of out.files ?? []) if (SAFE_ID.test(f.parents?.[0] ?? '')) return f.parents[0];
+    return null;
+  }
   async function ensureFolder() {
     if (folder) return folder;
+    const sibling = await siblingFolder();
+    if (sibling) { folder = sibling; return folder; }
     const top = (await findFolder('App Backups', 'root')) ?? await makeFolder('App Backups', 'root');
     folder = (await findFolder('StudCraft', top)) ?? await makeFolder('StudCraft', top);
     return folder;
@@ -64,12 +73,9 @@ export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch
   const VAULT_FIELDS = 'id,name,modifiedTime,version,headRevisionId';
 
   return {
-    /** Looks without creating folders, so checking for a backup changes nothing in Drive. */
+    /** Finds by name alone, because this client may not see the folders. drive.file limits results to StudCraft's files. */
     async findVault(name) {
-      const top = await findFolder('App Backups', 'root');
-      const parent = top && await findFolder('StudCraft', top);
-      if (!parent) return null;
-      const q = `name='${name}' and '${parent}' in parents and trashed=false`;
+      const q = `name='${name}' and trashed=false`;
       const out = await json(`${API}?q=${encodeURIComponent(q)}&orderBy=modifiedTime desc&pageSize=1&fields=files(${VAULT_FIELDS})`);
       const file = out.files?.[0];
       if (!file) return null;
@@ -78,10 +84,7 @@ export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch
     },
     /** Every file with this name, without creating folders. */
     async findAll(name) {
-      const top = await findFolder('App Backups', 'root');
-      const parent = top && await findFolder('StudCraft', top);
-      if (!parent) return [];
-      const q = `name='${name}' and '${parent}' in parents and trashed=false`;
+      const q = `name='${name}' and trashed=false`;
       const out = await json(`${API}?q=${encodeURIComponent(q)}&orderBy=createdTime&pageSize=20&fields=files(${VAULT_FIELDS})`);
       return (out.files ?? []).filter((f) => SAFE_ID.test(f.id ?? ''));
     },
@@ -100,12 +103,11 @@ export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch
       return json(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&fields=${VAULT_FIELDS}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: bytes });
     },
     async list(props) {
-      const parent = await ensureFolder();
       const filters = Object.entries(props).map(([k, v]) => {
         if (!SAFE_PROP.test(k) || !SAFE_PROP.test(v)) throw new DriveError('fatal');
         return `appProperties has { key='${k}' and value='${v}' }`;
       });
-      const q = [`'${parent}' in parents`, 'trashed=false', ...filters].join(' and ');
+      const q = ['trashed=false', ...filters].join(' and ');
       const files = [];
       let page = '';
       for (let i = 0; i < 25; i++) {

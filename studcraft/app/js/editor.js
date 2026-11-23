@@ -42,7 +42,7 @@ export function readDraft(d, known) {
   } catch { return null; }
 }
 
-export function createEditor({ engine, el, drafts, draftProject = () => null, onEdited = () => {}, colors, catalog, palettes, rebuild, onTweak, onResetImage, onAdjust, onExtras = () => {}, sliders, notify, onClose }) {
+export function createEditor({ engine, el, drafts, draftProject = () => null, draftLocked = () => false, onEdited = () => {}, colors, catalog, palettes, rebuild, onTweak, onResetImage, onAdjust, onExtras = () => {}, sliders, notify, onClose }) {
   const $ = (id) => document.getElementById(id);
   const canvas = $('edCanvas');
   const ctx = canvas.getContext('2d');
@@ -207,6 +207,8 @@ export function createEditor({ engine, el, drafts, draftProject = () => null, on
   }
 
   function saveDraft() {
+    // An offered draft stays until the person restores or discards it, even if they open another image.
+    if (draftLocked()) return;
     if (!isEdited()) { drafts.clear(); return; }
     drafts.save({ v: 1, w: s.w, h: s.h, config: s.config, grid: packGrid(s.cells), original: packGrid(s.original), at: Date.now(), project: draftProject() });
   }
@@ -491,7 +493,7 @@ export function createEditor({ engine, el, drafts, draftProject = () => null, on
   }
 
   function discard() {
-    drafts.clear();
+    if (!draftLocked()) drafts.clear();
     if (s.original) load(s.w, s.h, s.config, s.original);
   }
 

@@ -290,7 +290,11 @@ export class SharedSync {
   /** The automatic path. It never creates the file and never prompts. */
   autoSync() {
     return this.#locked(async () => {
-      if (!(await this.drive.findAll(SHARED_FILE)).length) return 'needs-setup';
+      if (!(await this.drive.findAll(SHARED_FILE)).length) {
+        // A joined device never offers a new passphrase, because that would split its data from the other devices.
+        if (this.#keys) throw noFile();
+        return 'needs-setup';
+      }
       if (!this.#keys) return 'needs-join';
       try { await this.#sync(); return 'synced'; } catch (e) { if (e.reason === 'KEY_MISMATCH') return 'needs-join'; throw e; }
     });
