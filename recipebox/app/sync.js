@@ -176,7 +176,14 @@ export function merge(local, remote, bases = {}, now = Date.now()) {
   }));
   const recipeUids = new Set(recipes.map((r) => r.uid));
   const unlink = (i) => (i.recipeUid != null && !recipeUids.has(i.recipeUid) ? { ...i, recipeUid: null } : i);
-  const grocery = pick(a.grocery, b.grocery);
+  // A copy saved by an app that doesn't know photos (photo == null) keeps the other copy's photo.
+  const photoOf = new Map();
+  for (const g of [...a.grocery, ...b.grocery]) {
+    if (g.photo == null) continue;
+    const c = photoOf.get(g.uid);
+    if (!c || g.updatedAt > c.updatedAt) photoOf.set(g.uid, g);
+  }
+  const grocery = pick(a.grocery, b.grocery).map((g) => (g.photo == null && photoOf.has(g.uid) ? { ...g, photo: photoOf.get(g.uid).photo } : g));
   const freezer = pick(a.freezer, b.freezer).map(unlink);
   const meals = pick(a.meals, b.meals).map(unlink);
   const live = new Set([...cookbooks, ...categories, ...recipes, ...grocery, ...freezer, ...meals].map((i) => i.uid));
@@ -201,7 +208,7 @@ export function drainInbox(d, now = Date.now()) {
   const existing = new Set([...d.grocery.map((g) => g.uid), ...d.tombstones.map((t) => t.uid)]);
   const added = d.inbox.filter((i) => i.item?.trim()).map((i) => ({
     uid: "inbox-" + i.id, name: i.item.trim(), quantity: (i.qty || "").trim(), recipe: "", checked: false,
-    source: "assistant:" + (i.source?.trim() ? i.source : "api"), createdAt: now, updatedAt: now,
+    source: "assistant:" + (i.source?.trim() ? i.source : "api"), createdAt: now, updatedAt: now, photo: null,
   })).filter((g) => !existing.has(g.uid));
   return { ...d, grocery: [...d.grocery, ...added].sort(byUid), inbox: [] };
 }

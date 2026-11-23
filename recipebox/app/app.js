@@ -79,7 +79,7 @@ function groceryFrom(line, recipe) {
     name = name.replace(/^\s*of\s+/i, "").trim();
   }
   const t = now();
-  return { uid: uid(), name: name || line, quantity: qty, recipe, checked: false, source: "web", createdAt: t, updatedAt: t };
+  return { uid: uid(), name: name || line, quantity: qty, recipe, checked: false, source: "web", createdAt: t, updatedAt: t, photo: null };
 }
 
 // ---------- Google sign-in ----------
@@ -498,6 +498,46 @@ function mealsView() {
         }) : h("p", { class: "muted" }, "Nothing planned"));
     })));
 }
+// ---------- grocery photos ----------
+const MAX_EDGE = 900, MAX_BASE64 = 160000;
+const photoSrc = (p) => (p && /^[A-Za-z0-9+/]+={0,2}$/.test(p) ? "data:image/jpeg;base64," + p : null);
+async function encodePhoto(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const k = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  for (const q of [.75, .65, .55, .45, .35]) {
+    const b64 = c.toDataURL("image/jpeg", q).split(",")[1];
+    if (b64.length <= MAX_BASE64) return b64;
+  }
+  return null;
+}
+function photoDialog(item) {
+  let photo = item.photo || "";
+  const preview = h("div", {}), err = h("p", { class: "err", role: "alert" });
+  const paint = () => {
+    const src = photoSrc(photo);
+    preview.replaceChildren(src ? h("img", { class: "photo-large", src, alt: `Photo of ${item.name}` }) : h("p", { class: "muted" }, "Add a picture so you get the right one at the store."));
+    removeBtn.hidden = !src; choose.textContent = src ? "Replace picture" : "Choose picture";
+  };
+  const input = h("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    err.textContent = ""; choose.disabled = true;
+    try { const b = await encodePhoto(f); if (b) { photo = b; paint(); } else err.textContent = "That picture couldn't be made small enough."; }
+    catch { err.textContent = "That picture couldn't be read. Try a JPEG or PNG."; }
+    choose.disabled = false;
+  } });
+  const choose = h("button", { onclick: () => input.click() }, "Choose picture");
+  const removeBtn = h("button", { class: "danger", onclick: () => { photo = ""; paint(); } }, "Remove photo");
+  paint();
+  dialog(item.name, [preview, err, input, h("div", { class: "row" }, choose, removeBtn)], "Save", () => {
+    if (photo !== (item.photo || "")) patch("grocery", item.uid, { photo });
+  });
+}
 function groceryView() {
   const input = h("input", { placeholder: "Add items, separated by commas", "aria-label": "Add grocery items" });
   const add = () => {
@@ -513,6 +553,9 @@ function groceryView() {
     h("section", { class: "panel" }, items.length ? items.map((i) => h("div", { class: "item" + (i.checked ? " done" : "") },
       h("input", { type: "checkbox", checked: i.checked, "aria-label": i.name, onchange: (e) => patch("grocery", i.uid, { checked: e.target.checked }) }),
       h("div", { class: "body" }, h("span", { class: "name" }, (i.quantity ? i.quantity + " " : "") + i.name), i.recipe ? h("div", {}, h("small", { class: "muted" }, i.recipe)) : null),
+      photoSrc(i.photo)
+        ? h("button", { class: "thumb-btn", "aria-label": `Photo of ${i.name}`, onclick: () => photoDialog(i) }, h("img", { src: photoSrc(i.photo), alt: "" }))
+        : h("button", { class: "icon", "aria-label": `Add a photo of ${i.name}`, title: "Add a photo", onclick: () => photoDialog(i) }, "📷"),
       h("button", { class: "icon danger", "aria-label": `Remove ${i.name}`, onclick: () => remove("grocery", "grocery", [i.uid]) }, "×"))) : h("p", { class: "muted" }, "Your grocery list is empty.")));
 }
 function freezerView() {
