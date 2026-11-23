@@ -179,6 +179,7 @@ async function connectDrive() {
   } catch (e) { S.error = e.message; if (S.screen === "app") render(); }
 }
 const backupNow = () => (hasDrive() ? sync() : connectDrive());
+function unlockBackup() { S.locked = false; return backupNow(); }
 async function turnOffBackup() {
   if (!confirm("Stop backing up to Google Drive from this browser? Your recipes stay here, and the Drive file isn't deleted.")) return;
   S.driveOn = false; S.token = null; S.noFile = false; S.locked = false; S.error = "";
@@ -245,14 +246,18 @@ async function sync() {
     await saveLocal();
     if (combinedTotal) toast(`Combined your edits with another device (${combinedTotal})`);
   } catch (e) {
-    if (e instanceof NeedsUnlock) { S.unlock = e.header; S.screen = "unlock"; }
+    if (e instanceof NeedsUnlock) {
+      S.unlock = e.header;
+      // Ask now, unless the user said "Not now" or is in the middle of editing something.
+      if (S.locked || S.editing || document.querySelector("dialog[open]")) S.locked = true; else S.screen = "unlock";
+    }
     else S.error = e.message || "Sync failed";
   } finally {
     S.running = false;
     saveLocal();
     // Don't redraw under someone typing or using a dialog.
     const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
-    if (S.screen === "app" && !typing && !document.querySelector("dialog[open]") && !S.editing) render(); else paintSync();
+    if (S.screen === "unlock" || (S.screen === "app" && !typing && !document.querySelector("dialog[open]") && !S.editing)) render(); else paintSync();
     if (S.again) { S.again = false; sync(); }
   }
 }
@@ -354,6 +359,8 @@ function shellView() {
 }
 function backupBanner() {
   if (S.editing || S.tab === "settings") return null;
+  if (S.driveOn && S.locked)
+    return h("div", { class: "banner" }, h("span", {}, "Your Google Drive backup is encrypted. Enter your passphrase to bring in your recipes."), h("button", { class: "primary", onclick: unlockBackup }, "Unlock backup"));
   if (S.driveOn && !S.running && !hasDrive() && Object.keys(S.bases).length)
     return h("div", { class: "banner" }, h("span", {}, "Your changes are saved in this browser."), h("button", { onclick: connectDrive }, "Back up to Drive"));
   if (!S.driveOn && !S.data.recipes.length)
@@ -648,7 +655,7 @@ function backupPanel() {
   return h("section", { class: "panel" }, h("h2", {}, "Google Drive backup"), status, h("p", { class: "muted" }, "Google Drive › Recipe Box › " + FILE_NAME),
     h("div", { class: "row" },
       S.noFile && hasDrive() ? h("button", { class: "primary", onclick: createBackup }, "Create backup") : h("button", { class: "primary", disabled: S.running, onclick: backupNow }, hasDrive() ? "Back up now" : "Reconnect and back up"),
-      S.locked && h("button", { onclick: backupNow }, "Unlock backup"),
+      S.locked && h("button", { onclick: unlockBackup }, "Unlock backup"),
       h("button", { class: "danger", onclick: turnOffBackup }, "Turn off backup")));
 }
 function settingsView() {
