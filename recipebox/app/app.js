@@ -85,27 +85,17 @@ function groceryFrom(line, recipe) {
 }
 
 // ---------- Google sign-in ----------
-let tokenClient, tokenWait;
-function gisReady() {
+// A fresh client for each request, opened straight from the click so the browser keeps Google's window open.
+function requestToken(scope, prompt) {
   return new Promise((res, rej) => {
-    const start = now();
-    (function poll() {
-      if (window.google?.accounts?.oauth2) return res();
-      if (now() - start > 10000) return rej(new Error("Google sign-in didn't load. Check for a content blocker."));
-      setTimeout(poll, 100);
-    })();
+    const oauth = window.google?.accounts?.oauth2;
+    if (!oauth) return rej(new Error("Google sign-in is still loading. Try again in a moment, or check for a content blocker."));
+    oauth.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID, scope, prompt, hint: S.email || undefined,
+      callback: (r) => (r.error ? rej(new Error(`Google said: ${r.error_description || r.error}`)) : res(r)),
+      error_callback: (e) => rej(new Error(e.type === "popup_closed" ? "Google's window was closed before it finished." : e.type === "popup_failed_to_open" ? "Your browser blocked Google's window. Allow pop-ups for this site and try again." : `Google sign-in failed (${e.message || e.type || "unknown"}).`)),
+    }).requestAccessToken();
   });
-}
-async function requestToken(scope, prompt) {
-  await gisReady();
-  if (!tokenClient) {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID, scope: LOGIN_SCOPES,
-      callback: (r) => { const w = tokenWait; tokenWait = null; if (r.error) w?.rej(new Error(`Google said: ${r.error_description || r.error}`)); else w?.res(r); },
-      error_callback: (e) => { const w = tokenWait; tokenWait = null; w?.rej(new Error(e.type === "popup_closed" ? "Google's window was closed before it finished." : e.type === "popup_failed_to_open" ? "Your browser blocked Google's window. Allow pop-ups for this site and try again." : `Google sign-in failed (${e.type || "unknown"}).`)); },
-    });
-  }
-  return new Promise((res, rej) => { tokenWait = { res, rej }; tokenClient.requestAccessToken({ scope, prompt, login_hint: S.email || undefined }); });
 }
 async function whoAmI(accessToken) {
   const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + accessToken } });
@@ -173,7 +163,8 @@ async function signOut() {
 async function connectDrive() {
   S.error = "";
   try {
-    const r = await requestToken(`${LOGIN_SCOPES} ${DRIVE_SCOPE}`, "");
+    // First connection always shows Google's permission screen, so the Drive checkbox can be seen and ticked.
+    const r = await requestToken(`${LOGIN_SCOPES} ${DRIVE_SCOPE}`, S.driveOn ? "" : "consent");
     if (!google.accounts.oauth2.hasGrantedAllScopes(r, DRIVE_SCOPE)) throw new Error("Google Drive access wasn't allowed, so backup is off.");
     const u = await whoAmI(r.access_token);
     if (u.email.toLowerCase() !== S.email.toLowerCase()) throw new Error(`That was ${u.email}. Choose ${S.email} for your backup.`);
