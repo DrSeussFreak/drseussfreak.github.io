@@ -67,6 +67,15 @@ export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch
       if (!SAFE_ID.test(file.id ?? '')) throw new DriveError('fatal');
       return file;
     },
+    /** Every file with this name, without creating folders. */
+    async findAll(name) {
+      const top = await findFolder('App Backups', 'root');
+      const parent = top && await findFolder('StudCraft', top);
+      if (!parent) return [];
+      const q = `name='${name}' and '${parent}' in parents and trashed=false`;
+      const out = await json(`${API}?q=${encodeURIComponent(q)}&orderBy=createdTime&pageSize=20&fields=files(${VAULT_FIELDS})`);
+      return (out.files ?? []).filter((f) => SAFE_ID.test(f.id ?? ''));
+    },
     async createVault(name, bytes) {
       const parent = await ensureFolder();
       const boundary = `sc${crypto.randomUUID().replaceAll('-', '')}`;

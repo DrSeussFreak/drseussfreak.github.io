@@ -420,19 +420,25 @@ export class AutoSaver {
     if (!this.online()) { this.#set('offline'); return; }
     this.#set('saving');
     let conflict = false;
+    let tooLarge = null;
     for (const item of items) {
       try {
         const out = await this.sync.saveSnapshot({ ...item.snapshot, project: item.project }, item.versionId);
         await this.queue.remove(item.project, item.versionId);
         conflict ||= out.conflict;
-      } catch (e) { this.#failed(e); return; }
+      } catch (e) {
+        if (e?.reason !== 'TOO_LARGE') { this.#failed(e); return; }
+        tooLarge = e.message; // This one stays queued. Smaller saves can still go through.
+      }
     }
     this.#attempt = 0;
+    if (tooLarge) { this.#set('error', tooLarge); return; }
     this.#set(conflict ? 'conflict' : 'saved', conflict ? 'Another device changed this project. Both copies are kept.' : '');
   }
 
   #failed(e) {
     if (e?.reason === 'LOCKED') { this.#set('locked'); return; }
+    if (e?.reason === 'NOT_FOUND' || e?.reason === 'KEY_MISMATCH') { this.#set('error', e.message); return; }
     if (e?.kind === 'auth') { this.#set('error', 'Reconnect Google Drive to keep saving.'); return; }
     if (e?.kind === 'fatal' || e instanceof SecureError) { this.#set('error', 'This save was rejected. It stays encrypted on this device.'); return; }
     this.#set(e?.kind === 'offline' || !this.online() ? 'offline' : 'error', e?.kind === 'offline' ? '' : 'Google Drive is unavailable. Retrying.');

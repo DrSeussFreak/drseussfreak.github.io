@@ -1353,6 +1353,7 @@ async function libraryForMove() {
     snapshot: {
       title: line(m.title), notes: m.notes, width: m.width, height: m.height, grid: null, original: null, image: null,
       settings: { style: m.style, backing: m.backing, palette: m.palette, rarity: m.rarity, tolerance: m.tolerance, dither: m.dither, legal: m.legal, brightness: 0, contrast: 1.08, saturation: 1.12, sampleId: m.sample, sourceLabel: line(m.sourceLabel) },
+      library: m.details,
     },
   }));
 }

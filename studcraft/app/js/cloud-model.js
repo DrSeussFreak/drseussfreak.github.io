@@ -59,6 +59,23 @@ export function buildMosaicDoc({ uid, title, notes, sampleId, sourceLabel, confi
 const inRange = (value, low, high) => typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
 const isWhole = (value, low, high) => Number.isInteger(value) && value >= low && value <= high;
 
+const stampOf = (value) => {
+  try {
+    const ms = value?.toMillis?.();
+    return inRange(ms, 0, 8.64e15) ? ms : null;
+  } catch { return null; }
+};
+
+/** The record's stored values, unchanged, so an encrypted copy can preserve them exactly. */
+export function libraryDetails(data) {
+  return {
+    totalPieces: data.totalPieces ?? 0, estimatedPabUsd: data.estimatedPabUsd ?? 0, estimatedBlUsd: data.estimatedBlUsd ?? 0,
+    legalScore: data.legalScore ?? 100, completedStepsCount: data.completedStepsCount ?? 0,
+    createdAt: stampOf(data.createdAt), updatedAt: stampOf(data.updatedAt),
+    sourceLabel: typeof data.sourceLabel === 'string' ? data.sourceLabel : '', sampleId: typeof data.sampleId === 'string' ? data.sampleId : null,
+  };
+}
+
 /** Validates a stored document as untrusted input. Returns null when it cannot be used. */
 export function parseMosaic(id, data) {
   if (typeof id !== 'string' || !ID.test(id) || data === null || typeof data !== 'object') return null;
@@ -86,6 +103,7 @@ export function parseMosaic(id, data) {
     pab: inRange(data.estimatedPabUsd, 0, 100000) ? data.estimatedPabUsd : 0,
     bl: inRange(data.estimatedBlUsd, 0, 100000) ? data.estimatedBlUsd : 0,
     score: isWhole(data.legalScore, 0, 100) ? data.legalScore : 0,
+    details: libraryDetails(data),
   };
 }
 

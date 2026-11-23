@@ -14,6 +14,8 @@ export const META_RANGE_BYTES = 8192;
 export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_KEYRING_BYTES = 16 * 1024;
+/** The one shared sync file, including every project. */
+export const MAX_SHARED_BYTES = 24 * 1024 * 1024;
 export const KEYRING_FORMAT = 'studcraft-keyring';
 export const KEYRING_VERSION = 1;
 export const KDF = 'PBKDF2-HMAC-SHA256';
@@ -122,6 +124,9 @@ async function nameTag(keys, text) {
 }
 export const groupTag = (keys, project) => nameTag(keys, `project:${project}`);
 export const importedProjectId = (keys, sourceId) => nameTag(keys, `firestore:${sourceId}`);
+/** The same on every device, so two devices resolving one conflict make one copy. */
+export const conflictProjectId = (keys, project, version) => nameTag(keys, `conflict:${project}:${version}`);
+export const isId = (text) => typeof text === 'string' && HEX32.test(text);
 
 async function passKey(phrase, salt, iterations, usage) {
   const material = await crypto.subtle.importKey('raw', utf8(phrase), 'PBKDF2', false, ['deriveKey']);
@@ -283,6 +288,20 @@ export function validateSettings(s) {
   return out;
 }
 
+const MAX_STAT = 1_000_000_000;
+
+/** Everything a Cloud Library record holds beyond the project itself. Optional, so older files still open. */
+export function validateLibrary(l) {
+  if (l === undefined || l === null) return null;
+  if (!isObject(l)) throw bad();
+  for (const k of ['totalPieces', 'legalScore', 'completedStepsCount']) if (!whole(l[k], 0, MAX_STAT)) throw bad();
+  if (!inRange(l.estimatedPabUsd, 0, MAX_STAT) || !inRange(l.estimatedBlUsd, 0, MAX_STAT)) throw bad();
+  for (const k of ['createdAt', 'updatedAt']) if (l[k] !== undefined && l[k] !== null && !whole(l[k], 0, 8.64e15)) throw bad();
+  if (typeof l.sourceLabel !== 'string' || Array.from(l.sourceLabel).length > 200) throw bad();
+  if (l.sampleId !== undefined && l.sampleId !== null && (typeof l.sampleId !== 'string' || Array.from(l.sampleId).length > 40)) throw bad();
+  return { totalPieces: l.totalPieces, estimatedPabUsd: l.estimatedPabUsd, estimatedBlUsd: l.estimatedBlUsd, legalScore: l.legalScore, completedStepsCount: l.completedStepsCount, createdAt: l.createdAt ?? null, updatedAt: l.updatedAt ?? null, sourceLabel: l.sourceLabel, sampleId: l.sampleId ?? null };
+}
+
 export function validateBody(b, meta) {
   if (!isObject(b) || b.v !== 1 || !isText(b.notes ?? '', 1000, true)) throw bad();
   const settings = validateSettings(b.settings);
@@ -299,7 +318,7 @@ export function validateBody(b, meta) {
     if (!raw || raw.length > MAX_IMAGE_BYTES) throw bad();
     image = { mime: b.image.mime, data: b.image.data };
   }
-  return { notes: b.notes ?? '', settings, grid: hasGrid ? b.grid : null, original: hasGrid ? b.original : null, image };
+  return { notes: b.notes ?? '', settings, grid: hasGrid ? b.grid : null, original: hasGrid ? b.original : null, image, library: validateLibrary(b.library) };
 }
 
 export function buildProjectParts(snapshot, ids) {
@@ -307,6 +326,7 @@ export function buildProjectParts(snapshot, ids) {
   const meta = { v: 1, project: ids.project, version: ids.version, parents: ids.parents, title: String(snapshot.title ?? ''), updatedAt: ids.updatedAt, device: ids.device ?? '', width: snapshot.width, height: snapshot.height, hasGrid, hasImage: Boolean(snapshot.image) };
   validateMeta(meta);
   const body = { v: 1, notes: snapshot.notes ?? '', settings: snapshot.settings, grid: hasGrid ? snapshot.grid : null, original: hasGrid ? snapshot.original : null, image: snapshot.image ?? null };
+  if (snapshot.library) body.library = snapshot.library;
   validateBody(body, meta);
   return { meta, body: utf8(JSON.stringify(body)) };
 }

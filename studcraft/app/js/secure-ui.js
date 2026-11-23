@@ -2,9 +2,12 @@
 import { DRIVE_WEB_CLIENT_ID } from './drive-config.js';
 import { DriveError, createDriveRest, createGisAuth } from './drive-rest.js';
 import { LOST_PASSPHRASE_WARNING, MIN_PASSPHRASE, SecureError, passphraseProblem, randomId, toHex } from './secure-format.js';
-import { AutoSaver, SecureSync, createQueue } from './secure-sync.js';
+import { AutoSaver, createQueue } from './secure-sync.js';
+import { SharedSync } from './shared-sync.js';
 
 const STATUS = { off: 'Off', saved: 'Saved', saving: 'Saving…', offline: 'Offline', locked: 'Locked', error: 'Error', conflict: 'Conflict' };
+const STEP = { 'needs-setup': 'setup', 'needs-join': 'unlock', synced: 'ready' };
+const SYNC_EVERY_MS = 5 * 60 * 1000;
 const PREF = 'studcraft.secureAutosave';
 const IMAGE_PREF = 'studcraft.secureImage';
 
@@ -37,7 +40,7 @@ const friendly = (e) => {
 };
 
 export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapshot, applyProject, library, deleteOriginal, clientId = DRIVE_WEB_CLIENT_ID }) {
-  const ui = { step: 'intro', message: '', error: false, projects: null, unreadable: 0, confirm: null, verified: [], move: null, status: 'off', detail: '', busy: false, changing: false, versionsFor: null };
+  const ui = { step: 'intro', message: '', error: false, projects: null, unreadable: 0, confirm: null, verified: [], move: null, status: 'off', detail: '', busy: false, changing: false, recovery: null, hasLegacy: false };
   let project = null;
   let sync = null; let saver = null; let drive = null;
   const auth = clientId ? createGisAuth({ clientId }) : null;
@@ -70,13 +73,29 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
       await auth.connect();
       drive = createDriveRest({ getToken: (refresh, stale) => auth.getToken(refresh, stale) });
       const owner = await ownerHash(await drive.ownerId());
-      sync = new SecureSync({ drive, kv: ownerKv(kv, owner), device: 'web' });
+      sync = new SharedSync({ drive, kv: ownerKv(kv, owner), device: 'web' });
       await sync.restoreCachedKey();
-      ui.step = sync.unlocked ? 'ready' : (await sync.hasKeyring()) ? 'unlock' : 'setup';
       makeSaver();
+      ui.step = STEP[await sync.autoSync()];
+      ui.hasLegacy = await sync.hasLegacy().catch(() => false);
       ui.message = '';
-      if (sync.unlocked) await refresh();
+      if (ui.step === 'ready') { await refresh(); await saver?.drain(); }
     });
+  }
+
+  /** Runs on focus and every five minutes. It never prompts and never creates the sync file. */
+  let ticking = false;
+  async function tick() {
+    if (ticking || ui.busy || !sync || !auth?.connected()) return;
+    ticking = true;
+    try {
+      const next = STEP[await sync.autoSync()];
+      if (ui.busy) return;
+      const changed = next !== ui.step;
+      ui.step = next;
+      if (next === 'ready') { await refresh(); await saver?.drain(); }
+      if (!ui.busy && (changed || next === 'ready') && !host.contains(document.activeElement)) render();
+    } catch (e) { ui.detail = friendly(e); renderStatus(); } finally { ticking = false; }
   }
 
   async function refresh() {
@@ -86,20 +105,24 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
 
   const reconnect = () => work('Waiting for Google…', async () => { await auth.connect(); ui.message = ''; await saver?.drain(); });
 
-  const afterUnlock = async () => { ui.step = 'ready'; ui.message = ''; await refresh(); await saver?.drain(); };
+  const afterUnlock = async () => {
+    if (prefs.get(PREF) === null || prefs.get(PREF) === undefined) { prefs.set(PREF, '1'); await saver?.enable(); }
+    ui.step = 'ready'; ui.message = ''; ui.hasLegacy = await sync.hasLegacy().catch(() => false);
+    await refresh(); await saver?.drain();
+  };
 
   function setup() {
     const a = take('securePass'); const b = take('securePass2');
     const problem = passphraseProblem(a, b);
     if (problem) { say(problem, true); return; }
     if (!document.getElementById('secureAck')?.checked) { say('Confirm that you understand a lost passphrase cannot be recovered.', true); return; }
-    work('Creating your encrypted keyring…', async () => { await sync.setup(a); await afterUnlock(); });
+    work('Creating your encrypted sync file…', async () => { ui.recovery = await sync.setup(a); await afterUnlock(); });
   }
 
   function unlock() {
     const a = take('securePass');
     if (!a) return;
-    work('Unlocking…', async () => { await sync.unlock(a); await afterUnlock(); });
+    work('Joining your sync file…', async () => { await sync.join(a); await afterUnlock(); });
   }
 
   function changePass() {
@@ -110,7 +133,7 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
   }
 
   function lockDevice() {
-    work('Locking…', async () => { await sync.lock(); ui.projects = null; ui.step = 'unlock'; ui.message = 'Locked and forgotten on this device. Encrypted queued saves stay here until you unlock.'; await saver?.drain(); });
+    work('Locking…', async () => { await sync.lock(); ui.projects = null; ui.recovery = null; ui.step = 'unlock'; ui.message = 'Locked and forgotten on this device. Encrypted queued saves stay here until you unlock.'; await saver?.drain(); });
   }
 
   function setAuto(on) {
@@ -121,26 +144,38 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
 
   const open = (p, version) => work('Decrypting…', async () => {
     const data = await sync.openVersion(p.project, version);
+    if (!data.grid && !p.canRebuild) {
+      ui.message = `No saved layout for “${data.meta.title}”. Its details are preserved here, and your current mosaic was not changed.`;
+      return;
+    }
     if (await applyProject(data)) {
-      project = p.project;
-      await sync.adopt(p.project, version);
-      ui.message = `Opened “${data.meta.title}”.`;
+      if (data.grid) {
+        project = p.project;
+        await sync.adopt(p.project);
+        ui.message = `Opened “${data.meta.title}”.`;
+      } else {
+        project = null; // A rebuild is a new mosaic. It never replaces the preserved record.
+        ui.message = `Rebuilt “${data.meta.title}” from its built-in sample and settings. It may differ from the original, which had no saved layout.`;
+      }
     } else ui.message = 'Nothing was changed.';
   });
 
-  const resolve = (p, version, keepOthers) => work('Resolving…', async () => {
-    await sync.resolveConflict(p.project, version, { keepOthers });
-    ui.confirm = null;
-    await refresh();
-    ui.message = keepOthers ? 'Kept this version and saved the other as a copy.' : 'Kept this version. The other stays in version history.';
-  });
+  const importLegacy = () => {
+    const old = take('secureLegacyPass');
+    if (!old) return;
+    work('Importing older encrypted saves…', async () => {
+      const added = await sync.importLegacy(old);
+      await refresh();
+      ui.message = `Imported ${added} older project${added === 1 ? '' : 's'}. The older files were left in Google Drive.`;
+    });
+  };
 
-  const remove = (p) => work('Moving to Drive trash…', async () => {
+  const remove = (p) => work('Deleting…', async () => {
     await sync.deleteProject(p.project);
     if (project === p.project) project = null;
     ui.confirm = null;
     await refresh();
-    ui.message = 'Moved to Google Drive trash.';
+    ui.message = 'Deleted from your encrypted sync file.';
   });
 
   const move = () => work('Encrypting and verifying…', async () => {
@@ -150,7 +185,7 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
     ui.move = { total: items.length, failed: out.failed.length };
     ui.confirm = null;
     await refresh();
-    ui.message = `${out.verified.length} of ${items.length} copied and verified.${out.failed.length ? ` ${out.failed.length} could not be verified and were left alone.` : ''} Your Cloud Library originals have not been deleted.`;
+    ui.message = `Checked ${items.length} Cloud Library item${items.length === 1 ? '' : 's'} against Google Drive.${out.verified.length ? ` ${out.verified.length} fully copied and verified.` : ''}${out.noGrid.length ? ` ${out.noGrid.length} details copied, no saved layout.` : ''}${out.failed.length ? ` ${out.failed.length} could not be verified and were left alone.` : ''} No Cloud Library originals were deleted.`;
   });
 
   const deleteMoved = () => work('Deleting plaintext originals…', async () => {
@@ -173,25 +208,25 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
   }
 
   const when = (ms) => new Date(ms).toLocaleString();
+  const detailsText = (d) => [`${d.totalPieces} pieces`, `PAB $${d.estimatedPabUsd.toFixed(2)}`, `BrickLink $${d.estimatedBlUsd.toFixed(2)}`, `Legal ${d.legalScore}/100`, `${d.completedStepsCount} steps done`,
+    d.sourceLabel ? `Source: ${d.sourceLabel}` : null, d.createdAt !== null ? `Created ${when(d.createdAt)}` : null, d.updatedAt !== null ? `Updated ${when(d.updatedAt)}` : null].filter(Boolean).join(' · ');
 
   function projectRow(p) {
     const key = `delete:${p.project}`;
     const actions = ui.confirm === key
-      ? [el('span', { class: 'hint', text: 'Move all versions to Drive trash?' }), button('Move to trash', () => remove(p), 'btn danger'), button('Keep', () => { ui.confirm = null; render(); }, 'btn ghost')]
-      : [button('Open', () => open(p, p.heads[0]), 'btn ghost', { 'data-secure-open': p.project }), button('Versions', () => { ui.versionsFor = ui.versionsFor === p.project ? null : p.project; render(); }, 'btn ghost'), button('Delete', () => { ui.confirm = key; render(); }, 'btn ghost', { 'data-secure-delete': p.project })];
-    const conflict = p.conflict ? el('div', { class: 'secure-conflict' },
-      el('p', { class: 'hint', text: 'Two devices changed this project. Neither copy was overwritten. Choose which stays current.' }),
-      ...p.heads.map((h) => { const m = p.versions.find((v) => v.version === h); return el('div', { class: 'btn-row' }, el('span', { class: 'hint', text: `${when(m.updatedAt)} · ${m.device || 'device'}` }), button('Keep, copy other', () => resolve(p, h, true), 'btn ghost', { 'data-secure-keep': h })); })) : null;
-    const versions = ui.versionsFor === p.project ? el('div', { class: 'list' }, ...p.versions.map((v) => el('div', { class: 'btn-row' }, el('span', { class: 'hint', text: `${when(v.updatedAt)} · ${v.device || 'device'}` }), button('Restore', () => open(p, v.version), 'btn ghost')))) : null;
+      ? [el('span', { class: 'hint', text: 'Delete this project from your sync file on every device?' }), button('Delete', () => remove(p), 'btn danger', { id: 'secureDeleteYes' }), button('Keep', () => { ui.confirm = null; render(); }, 'btn ghost')]
+      : [p.hasLayout || p.canRebuild ? button(p.hasLayout ? 'Open' : 'Rebuild from sample', () => open(p, p.heads[0]), 'btn ghost', { 'data-secure-open': p.project }) : null, button('Delete', () => { ui.confirm = key; render(); }, 'btn ghost', { 'data-secure-delete': p.project })];
     return el('div', { class: 'list-item', 'data-secure-project': p.project },
-      el('div', {}, el('strong', { class: 'saved-title', text: p.title || 'Untitled' }), el('p', { text: `${p.width}×${p.height} studs · ${when(p.updatedAt)} · ${p.versions.length} version${p.versions.length === 1 ? '' : 's'}` }), conflict, versions),
-      el('div', { class: 'list-actions' }, ...actions));
+      el('div', {}, el('strong', { class: 'saved-title', text: p.title || 'Untitled' }), el('p', { text: `${p.width}×${p.height} studs · ${when(p.updatedAt)}` }),
+        p.details ? el('p', { class: 'hint', 'data-secure-details': '', text: detailsText(p.details) }) : null,
+        p.hasLayout ? null : el('p', { class: 'hint', 'data-secure-nolayout': '', text: p.canRebuild ? 'Details only. No layout is stored, but it can be rebuilt from its built-in sample.' : 'Details only. No layout is stored, so there is nothing to open.' })),
+      el('div', { class: 'list-actions' }, ...actions.filter(Boolean)));
   }
 
   function body() {
     if (!clientId) return [el('p', { id: 'secureUnconfigured', class: 'hint', text: "Drive auto-save isn't configured yet." })];
     if (ui.step === 'intro') {
-      return [el('p', { class: 'hint', text: 'Save projects to App Backups / StudCraft in your Google Drive, encrypted on this device first. Google asks for Drive access only when you connect here.' }),
+      return [el('p', { class: 'hint', text: 'Keep your projects in sync through one encrypted file in App Backups / StudCraft on your Google Drive. It is encrypted on this device first. Google asks for Drive access only when you connect here.' }),
         prefs.get(PREF) === '1' ? el('p', { class: 'hint', text: 'Auto-save is on but paused. Connect to resume. Your edits are kept in an encrypted draft on this device.' }) : null,
         el('div', { class: 'btn-row' }, button('Connect Google Drive', connect, 'btn', { id: 'secureConnect', onpointerenter: () => auth.prepare() }))];
     }
@@ -199,10 +234,10 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
       return [el('p', { class: 'secure-warning', text: LOST_PASSPHRASE_WARNING }),
         field('securePass', `New passphrase (${MIN_PASSPHRASE}+ characters)`, 'new-password'), field('securePass2', 'Enter it again', 'new-password'),
         el('label', { class: 'switch' }, el('input', { id: 'secureAck', type: 'checkbox' }), el('span', { text: 'I understand a lost passphrase means my encrypted projects are gone.' })),
-        el('div', { class: 'btn-row' }, button('Create encrypted storage', setup, 'btn', { id: 'secureSetup' }))];
+        el('div', { class: 'btn-row' }, button('Create encrypted sync file', setup, 'btn', { id: 'secureSetup' }))];
     }
     if (ui.step === 'unlock') {
-      return [field('securePass', 'Passphrase', 'current-password'), el('div', { class: 'btn-row' }, button('Unlock', unlock, 'btn', { id: 'secureUnlock' })), el('p', { class: 'hint', text: LOST_PASSPHRASE_WARNING })];
+      return [el('p', { class: 'hint', text: 'Your Drive already has a StudCraft sync file. Enter its passphrase or recovery code once, and this browser stays joined.' }), field('securePass', 'Passphrase or recovery code', 'current-password'), el('div', { class: 'btn-row' }, button('Join', unlock, 'btn', { id: 'secureUnlock' })), el('p', { class: 'hint', text: LOST_PASSPHRASE_WARNING })];
     }
     const auto = el('input', { id: 'secureAuto', type: 'checkbox', onchange: (e) => setAuto(e.target.checked) });
     auto.checked = prefs.get(PREF) === '1';
@@ -214,22 +249,32 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
       ? el('div', { class: 'secure-conflict' }, el('p', { class: 'secure-warning', text: `Permanently delete ${ui.verified.length} plaintext original${ui.verified.length === 1 ? '' : 's'} from the Cloud Library? The verified encrypted copies stay in Drive. This cannot be undone.` }),
         el('div', { class: 'btn-row' }, button('Delete originals', deleteMoved, 'btn danger', { id: 'secureDeleteOriginalsYes' }), button('Keep originals', () => { ui.confirm = null; render(); }, 'btn ghost')))
       : button(`Delete ${ui.verified.length} plaintext original${ui.verified.length === 1 ? '' : 's'}…`, () => { ui.confirm = 'originals'; render(); }, 'btn ghost', { id: 'secureDeleteOriginals' })) : null;
+    const recovery = ui.recovery ? el('div', { class: 'secure-conflict' },
+      el('p', { class: 'secure-warning', text: 'Save this recovery code somewhere safe. It is shown only once, and it can unlock your projects if you forget your passphrase.' }),
+      el('p', {}, el('strong', { id: 'secureRecovery', text: ui.recovery })),
+      el('div', { class: 'btn-row' }, button('I saved it', () => { ui.recovery = null; render(); }, 'btn ghost', { id: 'secureRecoveryDone' }))) : null;
+    const legacy = ui.hasLegacy ? [el('h3', { text: 'Older encrypted saves' }),
+      el('p', { class: 'hint', text: 'Enter the passphrase you used for your older encrypted saves to bring their latest versions in. The older files stay in Drive.' }),
+      field('secureLegacyPass', 'Older passphrase', 'off'),
+      el('div', { class: 'btn-row' }, button('Import older saves', importLegacy, 'btn ghost', { id: 'secureLegacyImport' }))] : [];
     return [
-      el('label', { class: 'switch' }, auto, el('span', { text: 'Auto-save to Google Drive' })),
+      recovery,
+      el('label', { class: 'switch' }, auto, el('span', { text: 'Auto-sync with Google Drive' })),
       el('label', { class: 'switch' }, image, el('span', { text: 'Include the source image (up to 3 MB)' })),
       el('p', { id: 'secureDetail', class: 'hint', text: ui.detail }),
       auth.connected() ? null : button('Reconnect Google Drive', reconnect, 'btn', { id: 'secureReconnect' }),
-      el('div', { class: 'btn-row' }, button('Save now', () => { if (!saver.enabled) { saver.enable().then(() => saver.flush()).then(() => { if (prefs.get(PREF) !== '1') saver.disable(); return refresh(); }).then(render).catch((e) => say(friendly(e), true)); } else saver.flush().then(refresh).then(render).catch((e) => say(friendly(e), true)); }, 'btn', { id: 'secureSaveNow' }),
-        button('Refresh', () => work('Loading…', refresh), 'btn ghost', { id: 'secureRefresh' }),
+      el('div', { class: 'btn-row' }, button('Sync now', () => { if (!saver.enabled) { saver.enable().then(() => saver.flush()).then(() => { if (prefs.get(PREF) !== '1') saver.disable(); return refresh(); }).then(render).catch((e) => say(friendly(e), true)); } else saver.flush().then(refresh).then(render).catch((e) => say(friendly(e), true)); }, 'btn', { id: 'secureSaveNow' }),
+        button('Check for changes', () => work('Syncing…', async () => { await sync.syncNow(); await refresh(); ui.message = ''; }), 'btn ghost', { id: 'secureRefresh' }),
         button('Change passphrase', () => { ui.changing = true; render(); }, 'btn ghost'),
         button('Lock / forget on this device', lockDevice, 'btn ghost', { id: 'secureLock' })),
       change,
       el('h3', { text: 'Encrypted projects' }),
-      ui.unreadable ? el('p', { class: 'hint', text: `${ui.unreadable} file${ui.unreadable === 1 ? '' : 's'} could not be read and ${ui.unreadable === 1 ? 'was' : 'were'} skipped.` }) : null,
+      ui.unreadable ? el('p', { class: 'hint', text: `${ui.unreadable} sync file${ui.unreadable === 1 ? '' : 's'} could not be read and ${ui.unreadable === 1 ? 'was' : 'were'} left alone.` }) : null,
       el('div', { id: 'secureProjects', class: 'list' }, ...(ui.projects ?? []).map(projectRow)),
       ui.projects?.length === 0 ? el('p', { class: 'hint', text: 'No encrypted projects yet.' }) : null,
+      ...legacy,
       el('h3', { text: 'Cloud Library' }),
-      el('p', { class: 'hint', text: 'Cloud Library items in Firestore are not end-to-end encrypted until moved. Moving copies them here and verifies each one. Originals stay until you delete them separately.' }),
+      el('p', { class: 'hint', text: 'Cloud Library items in Firestore are not end-to-end encrypted. Moving copies them here and checks each copy. Originals stay. You can delete an original separately only when its full mosaic was verified.' }),
       el('div', { class: 'btn-row' }, button('Move to encrypted storage', move, 'btn ghost', { id: 'secureMove' }), moved),
     ];
   }
@@ -243,7 +288,9 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
     );
   }
 
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saver?.flush(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saver?.flush(); else tick(); });
+  window.addEventListener('focus', () => { tick(); });
+  setInterval(() => { tick(); }, SYNC_EVERY_MS);
   window.addEventListener('online', () => saver?.drain());
   window.addEventListener('pagehide', () => { saver?.flush(); });
   render();
@@ -254,7 +301,7 @@ export function createSecurePanel({ host, el, kv, durable, prefs, notify, snapsh
     disconnect() {
       saver?.disable(); saver = null; sync = null; drive = null; project = null;
       auth?.forget();
-      Object.assign(ui, { step: 'intro', projects: null, verified: [], confirm: null, message: '', status: 'off', detail: '', changing: false });
+      Object.assign(ui, { step: 'intro', projects: null, verified: [], confirm: null, message: '', status: 'off', detail: '', changing: false, recovery: null, hasLegacy: false });
       render();
     },
     prepareDrive: () => auth?.prepare(),
