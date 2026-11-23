@@ -1,22 +1,90 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Recipe Box</title><meta name="description" content="Recipes, meal planner, grocery list and freezer for Android and Mac."><link rel="icon" href="/recipebox/icon.png"><style>
-:root{--bg:#FFFBF7;--fg:#2B211B;--muted:#6B5B4E;--accent:#C2410C;--card:#F8EEE7}
-@media (prefers-color-scheme:dark){:root{--bg:#1C1612;--fg:#F3E7DF;--muted:#D7C2B4;--accent:#FFB592;--card:#2A211C}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-main{max-width:760px;margin:0 auto;padding:40px 20px 64px}h1{font-size:2rem;line-height:1.2;margin:.2em 0}h2{font-size:1.25rem;margin-top:2em;color:var(--accent)}
-a{color:var(--accent)}code{background:var(--card);padding:1px 6px;border-radius:6px;font-size:.9em}em{color:var(--muted)}
-header{display:flex;align-items:center;gap:14px;margin-bottom:28px}header img{width:56px;height:56px;border-radius:14px}header a{text-decoration:none;color:var(--fg);font-weight:600}
-.btn{display:inline-block;background:var(--accent);color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:600}
-footer{margin-top:48px;color:var(--muted);font-size:.9rem}</style></head><body><main>
-<header><img src="/recipebox/icon.png" alt=""><a href="/recipebox/">Recipe Box</a></header><h1>Recipe Box</h1>
-<p>Your recipes, meal plans, grocery list and freezer, on your Android phone and your Mac.</p>
-<ul>
-<li><strong>Cookbooks and categories.</strong> Import recipes from a website link or from another recipe app's export, or write your own.</li>
-<li><strong>Scale any recipe.</strong> Ingredient amounts adjust to the servings you need.</li>
-<li><strong>Meal planner.</strong> Plan by day, week or month, then add the whole plan's ingredients to the grocery list. Each item shows which recipe it's for.</li>
-<li><strong>Grocery list.</strong> Check items off as you shop. Bought items are only removed after you confirm.</li>
-<li><strong>Freezer.</strong> Keep count of leftover portions and how long ago each was made.</li>
-<li><strong>Sync.</strong> Sign in with Google and everything syncs through a file in your own Google Drive. There's no server, and nobody else sees your data.</li>
-</ul>
-<p><a class="btn" href="/recipebox/app/">Open Recipe Box in your browser</a> <a class="btn" href="/recipebox/privacy/">Privacy policy</a></p>
-<footer>Recipe Box by DrSeussFreak · <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a></footer></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DrSeussFreak Inc.</title>
+  <meta name="description" content="DrSeussFreak Inc. — apps made for fun, and to learn something new. Home of CannaTrack and SpiceTracker.">
+  <meta property="og:title" content="DrSeussFreak Inc.">
+  <meta property="og:description" content="Apps made for fun — and to learn something new.">
+  <meta property="og:image" content="https://drseussfreak.github.io/assets/brand/header.jpg">
+  <link rel="icon" href="/favicon.png">
+  <link rel="stylesheet" href="/assets/site.css?v=2">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/assets/brand/icon-256.png" alt=""><span>DrSeussFreak Inc.</span></a>
+      <nav><a href="#apps">Apps</a><a href="https://github.com/DrSeussFreak">GitHub</a><a href="mailto:drseussfreak@gmail.com">Contact</a></nav>
+    </div>
+  </header>
+
+  <section class="hero" aria-label="DrSeussFreak">
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <p class="hero-name">DrSeussFreak</p>
+        <p class="hero-tag">Apps made for fun, and to learn something new</p>
+      </div>
+      <img src="/assets/brand/character.png" alt="The DrSeussFreak cut-paper avatar" width="566" height="600">
+    </div>
+  </section>
+
+  <main class="wrap">
+    <h1>Hi, I'm Michael 👋</h1>
+    <p class="lead">DrSeussFreak, from the Chicagoland area. I build apps for fun and to learn — playing around with new technology.</p>
+
+    <h2 id="apps">Apps</h2>
+    <div class="cards">
+      <a class="card" href="/cannatrack/">
+        <img src="/assets/apps/cannatrack-icon.png" alt="CannaTrack icon">
+        <div>
+          <h3>CannaTrack</h3>
+          <p>A private medical-cannabis tracker: purchases, CannaCaps capsule blends and doses, synced between Android and Mac through your own Google Drive.</p>
+          <span class="pill">Android · Mac</span>
+        </div>
+      </a>
+      <a class="card" href="/spicetracker/">
+        <img src="/assets/apps/spicetracker-icon.png" alt="SpiceTracker icon">
+        <div>
+          <h3>SpiceTracker</h3>
+          <p>Rate and remember every hot sauce you try: your heat and rating, purchases, peppers and notes, synced between Android and Mac through your own Google Drive.</p>
+          <span class="pill">Android · Mac</span>
+        </div>
+      </a>
+      <a class="card" href="/brickvault/">
+        <img src="/assets/apps/brickvault-icon.png" alt="BrickVault icon">
+        <div>
+          <h3>BrickVault</h3>
+          <p>Track your brick set collection, estimated values, wishlist price trends and store deals, with a blind box scanner.</p>
+          <span class="pill">Android</span>
+        </div>
+      </a>
+      <a class="card" href="/studcraft/">
+        <img src="/assets/apps/studcraft-icon.png" alt="StudCraft icon">
+        <div>
+          <h3>StudCraft</h3>
+          <p>Turn photos and AI-created images into buildable brick mosaics, with parts lists, pricing and step-by-step guides.</p>
+          <span class="pill">Android · Mac</span>
+        </div>
+      </a>
+    </div>
+
+    <h2>About</h2>
+    <div class="about">
+      <img src="/assets/brand/character.png" alt="The DrSeussFreak cut-paper character">
+      <ul>
+        <li>👀 Interested in playing around with new technology</li>
+        <li>💞️ Happy to collaborate on any project that intrigues me — I like to learn</li>
+        <li>📫 Reach me at <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a> or on <a href="https://github.com/DrSeussFreak">GitHub</a></li>
+      </ul>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 DrSeussFreak Inc.</span>
+      <span><a href="/cannatrack/privacy/">CannaTrack privacy policy</a> · <a href="/spicetracker/privacy/">SpiceTracker privacy policy</a> · <a href="/brickvault/privacy/">BrickVault privacy policy</a> · <a href="/studcraft/privacy/">StudCraft privacy policy</a> · <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a></span>
+    </div>
+  </footer>
+</body>
+</html>
