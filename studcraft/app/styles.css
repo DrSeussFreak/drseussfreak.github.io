@@ -174,3 +174,34 @@ dialog .btn-row { margin-top: 12px; }
   .ed-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ed-bar .btn { padding: 4px 7px; min-height: 30px; font-size: 13px; }
 }
+
+/* Encrypted Drive saves */
+.secure-panel { margin-bottom: 16px; }
+.secure-panel h3 { margin: 16px 0 6px; font-size: 1rem; }
+.secure-warning { color: #b42318; font-weight: 600; }
+.secure-error { color: #b42318; }
+.secure-conflict { border-left: 3px solid #d97706; padding: 6px 10px; margin: 6px 0; }
+.secure-form { display: grid; gap: 8px; margin: 8px 0; }
+.pill[data-state="saved"] { color: #067647; }
+.pill[data-state="error"], .pill[data-state="conflict"] { color: #b42318; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .secure-warning, :root:not([data-theme="light"]) .secure-error { color: #fda29b; } }
+:root[data-theme="dark"] .secure-warning, :root[data-theme="dark"] .secure-error { color: #fda29b; }
+
+/* Finishing: edge buffer, sharpen, and Build from Sets */
+.x-open { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin-top: 8px; }
+.x-dialog { width: min(560px, calc(100vw - 16px)); max-width: min(560px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); padding: 14px; overflow-y: auto; }
+.x-preview { display: flex; justify-content: center; gap: 8px; margin: 10px 0 4px; }
+.x-preview canvas { width: min(200px, 42vw); height: auto; border-radius: 6px; background: var(--stage); }
+.x-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.x-seg .btn[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.x-sides { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.x-list { display: grid; gap: 4px; margin: 8px 0; max-height: 300px; overflow-y: auto; }
+.x-set { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 9px; }
+.x-set.on { border-color: var(--primary); }
+.x-set small { display: block; color: var(--muted); font-size: 12px; }
+.x-step { display: flex; align-items: center; gap: 2px; }
+.x-step button { width: 34px; height: 34px; padding: 0; }
+.x-step output { min-width: 24px; text-align: center; font-weight: 600; }
+.x-sel { margin: 8px 0 0; }
+.ed-swatch.out { opacity: .4; }
+.x-dialog input[type="search"] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font: inherit; }

@@ -1,5 +1,4 @@
 // Stud editor. Grid changes run through the shared Kotlin edit session; this file handles input and drawing only.
-const DRAFT_KEY = 'studcraft.editDraft.v1';
 const TOOLS = { b: 'brush', e: 'erase', f: 'fill', i: 'pick', r: 'replace', s: 'rect', h: 'pan' };
 const MIRRORS = ['NONE', 'HORIZONTAL', 'VERTICAL', 'BOTH'];
 const MAX_ZOOM = 16;
@@ -32,25 +31,25 @@ export function unpackGrid(text, size, known) {
   return at === size ? out : null;
 }
 
-export function readDraft(store, known) {
+/** Validates a decrypted draft as untrusted input. */
+export function readDraft(d, known) {
   try {
-    const d = JSON.parse(store.get(DRAFT_KEY) ?? 'null');
     if (!d || d.v !== 1 || !Number.isInteger(d.w) || !Number.isInteger(d.h) || d.w < 16 || d.w > 96 || d.h < 16 || d.h > 96 || typeof d.config !== 'object' || d.config === null) return null;
     const grid = unpackGrid(d.grid, d.w * d.h, known);
     const original = unpackGrid(d.original, d.w * d.h, known);
-    return grid && original ? { w: d.w, h: d.h, config: d.config, grid, original, at: Number(d.at) || 0 } : null;
+    const project = typeof d.project === 'string' && /^[0-9a-f]{32}$/.test(d.project) ? d.project : null;
+    return grid && original ? { w: d.w, h: d.h, config: d.config, grid, original, at: Number(d.at) || 0, project } : null;
   } catch { return null; }
 }
 
-export function clearDraft(store) { store.remove(DRAFT_KEY); }
-
-export function createEditor({ engine, el, store, colors, catalog, palettes, rebuild, onTweak, onResetImage, onAdjust, sliders, notify, onClose }) {
+export function createEditor({ engine, el, drafts, draftProject = () => null, onEdited = () => {}, colors, catalog, palettes, rebuild, onTweak, onResetImage, onAdjust, onExtras = () => {}, sliders, notify, onClose }) {
   const $ = (id) => document.getElementById(id);
   const canvas = $('edCanvas');
   const ctx = canvas.getContext('2d');
   const s = {
     open: false, w: 0, h: 0, config: null, tool: 'brush', size: 1, mirror: 'NONE', grid: true, color: catalog[0].id,
     zoom: 1, panX: 0, panY: 0, hover: null, rect: null, recent: [], cells: null, original: null, dirty: false, timer: 0, pending: null, frame: 0,
+    limited: null, locked: null,
   };
   const pointers = new Map();
   let gesture = null;
@@ -87,10 +86,11 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
     const y1 = Math.min(s.h - 1, Math.floor((canvas.height - m.y) / m.cell));
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1;) {
-        const id = s.cells[y * s.w + x];
+        const at = (cx) => (s.locked?.[y * s.w + cx] ? -1 : s.cells[y * s.w + cx]);
+        const id = at(x);
         let run = 1;
-        while (x + run <= x1 && s.cells[y * s.w + x + run] === id) run++;
-        const c = colors.get(id);
+        while (x + run <= x1 && at(x + run) === id) run++;
+        const c = id < 0 ? { r: 34, g: 38, b: 46 } : colors.get(id);
         ctx.fillStyle = `rgb(${c.r},${c.g},${c.b})`;
         ctx.fillRect(m.x + x * m.cell, m.y + y * m.cell, run * m.cell + 0.5, m.cell + 0.5);
         x += run;
@@ -154,13 +154,18 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
     const g = face.getContext('2d');
     g.fillStyle = `rgb(${c.r},${c.g},${c.b})`;
     g.fillRect(0, 0, 26, 26);
-    const label = `${c.blName}, BrickLink ${c.id}${count ? `, ${count} studs` : ''}`;
-    return el('button', { type: 'button', class: `ed-swatch${id === s.color ? ' on' : ''}`, title: label, 'aria-label': label, 'aria-pressed': String(id === s.color), 'data-color': String(id), onclick: () => choose(id) },
+    const left = s.limited ? Math.max(0, engine.editRemaining(id)) : null;
+    const label = `${c.blName}, BrickLink ${c.id}${count ? `, ${count} studs` : ''}${left === null ? '' : `, ${left} left`}`;
+    if (left !== null && !count) count = left;
+    return el('button', { type: 'button', class: `ed-swatch${id === s.color ? ' on' : ''}${left === 0 ? ' out' : ''}`, title: label, 'aria-label': label, 'aria-pressed': String(id === s.color), 'data-color': String(id), onclick: () => choose(id) },
       face, count ? el('small', { text: String(count) }) : null);
   }
 
   function renderColors() {
-    const ids = Array.from(engine.searchColors($('edSearch').value, $('edPalette').value, $('edTier').value));
+    const query = $('edSearch').value.trim().toLowerCase();
+    const ids = s.limited
+      ? s.limited.filter((id) => { const c = colors.get(id); return !query || c.name.toLowerCase().includes(query) || c.blName.toLowerCase().includes(query) || String(id) === query; })
+      : Array.from(engine.searchColors($('edSearch').value, $('edPalette').value, $('edTier').value));
     $('edCatalogCount').textContent = String(ids.length);
     $('edCatalog').replaceChildren(...ids.map((id) => swatch(id)));
     $('edRecent').replaceChildren(...s.recent.map((id) => swatch(id)));
@@ -172,7 +177,7 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
 
   function renderUsed() {
     const counts = new Map();
-    for (const id of s.cells) counts.set(id, (counts.get(id) ?? 0) + 1);
+    s.cells.forEach((id, i) => { if (!s.locked?.[i]) counts.set(id, (counts.get(id) ?? 0) + 1); });
     $('edUsed').replaceChildren(...[...counts.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => swatch(id, n)));
   }
 
@@ -202,8 +207,8 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
   }
 
   function saveDraft() {
-    if (!isEdited()) { clearDraft(store); return; }
-    store.set(DRAFT_KEY, JSON.stringify({ v: 1, w: s.w, h: s.h, config: s.config, grid: packGrid(s.cells), original: packGrid(s.original), at: Date.now() }));
+    if (!isEdited()) { drafts.clear(); return; }
+    drafts.save({ v: 1, w: s.w, h: s.h, config: s.config, grid: packGrid(s.cells), original: packGrid(s.original), at: Date.now(), project: draftProject() });
   }
 
   async function pushNow() {
@@ -217,13 +222,20 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
     return job;
   }
 
+  function warnRefused() {
+    const n = engine.editRefused();
+    if (n > 0) notify(`Your sets ran out of ${colors.get(s.color).blName}. ${n} stud${n === 1 ? ' was' : 's were'} left unchanged.`, true);
+  }
+
   function changed() {
+    warnRefused();
     s.cells = Int32Array.from(engine.editGrid());
     s.dirty = true;
     renderTools();
-    renderUsed();
+    if (s.limited && s.open) renderColors(); else renderUsed();
     paint();
     saveDraft();
+    onEdited();
     clearTimeout(s.timer);
     s.timer = setTimeout(pushNow, 160);
   }
@@ -312,14 +324,16 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
     if (g.kind === 'paint') { if (engine.editEnd()) changed(); } else if (g.kind === 'rect' && s.rect) {
       const r = s.rect;
       s.rect = null;
-      if (engine.editRect(r.x0, r.y0, r.x1, r.y1, s.color, s.mirror)) changed(); else paint();
+      if (engine.editRect(r.x0, r.y0, r.x1, r.y1, s.color, s.mirror)) changed(); else { warnRefused(); paint(); }
     } else if (g.kind === 'tap' && g.at.inside) {
       const id = s.cells[g.at.y * s.w + g.at.x];
       if (s.tool === 'pick') { choose(id); setTool('brush'); }
-      if (s.tool === 'fill' && engine.editFill(g.at.x, g.at.y, s.color, s.mirror)) changed();
-      if (s.tool === 'replace' && engine.editReplace(id, s.color)) {
-        changed();
-        notify(`Replaced ${colors.get(id).blName} with ${colors.get(s.color).blName}.`);
+      if (s.tool === 'fill') { if (engine.editFill(g.at.x, g.at.y, s.color, s.mirror)) changed(); else warnRefused(); }
+      if (s.tool === 'replace') {
+        if (engine.editReplace(id, s.color)) {
+          changed();
+          notify(`Replaced ${colors.get(id).blName} with ${colors.get(s.color).blName}.`);
+        } else warnRefused();
       }
     }
   }
@@ -419,6 +433,7 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
       for (const id of crops) { $(id).value = '0'; $(`${id}Out`).textContent = '0%'; }
     });
     $('edImageReset').addEventListener('click', onResetImage);
+    $('edExtras').addEventListener('click', onExtras);
     for (const name of ['Brightness', 'Contrast', 'Saturation']) {
       const key = name.toLowerCase();
       $(`ed${name}`).addEventListener('change', (e) => onAdjust(key, e.target.value));
@@ -434,8 +449,18 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
   function load(w, h, config, original, current) {
     clearTimeout(s.timer);
     Object.assign(s, { w, h, config: { ...config }, original: Int32Array.from(original), cells: Int32Array.from(current ?? original), dirty: false, timer: 0, pending: null, rect: null, hover: null });
-    engine.editOpen(w, h, s.original, s.cells);
-    if (!colors.has(s.color)) s.color = catalog[0].id;
+    if (config.extras) {
+      engine.editOpenExtras(w, h, s.original, s.cells, config.extras, config.style);
+      const limited = Array.from(engine.editLimited());
+      s.limited = limited.length ? limited : null;
+      const mask = engine.editLockedMask();
+      s.locked = mask.some((v) => v === 1) ? Uint8Array.from(mask) : null;
+    } else {
+      engine.editOpen(w, h, s.original, s.cells);
+      s.limited = null;
+      s.locked = null;
+    }
+    if (!colors.has(s.color) || (s.limited && !s.limited.includes(s.color))) s.color = s.limited?.[0] ?? catalog[0].id;
     if (s.open) { renderTools(); renderColors(); syncSliders(); paint(); }
   }
 
@@ -466,9 +491,9 @@ export function createEditor({ engine, el, store, colors, catalog, palettes, reb
   }
 
   function discard() {
-    clearDraft(store);
+    drafts.clear();
     if (s.original) load(s.w, s.h, s.config, s.original);
   }
 
-  return { load, open, close, flush, discard, isEdited, isOpen: () => s.open, editedCount: () => (s.cells ? flags()[3] : 0) };
+  return { load, open, close, flush, discard, isEdited, isOpen: () => s.open, originalGrid: () => s.original, editedCount: () => (s.cells ? flags()[3] : 0) };
 }

@@ -20,7 +20,7 @@
 
   <main class="wrap">
     <h1>StudCraft Privacy Policy</h1>
-    <p class="lead">Last updated: November 23, 2026 (editor drafts added)</p>
+    <p class="lead">Last updated: November 23, 2026 (encrypted Drive saves added)</p>
 
     <div class="policy">
       <p>StudCraft, made by DrSeussFreak Inc., turns pictures into brick mosaics. You can use it without an account. This policy explains what stays on your device and what is sent when you use optional features.</p>
@@ -34,7 +34,7 @@
       <p>On Android, API keys and tokens are encrypted with a key held in Android Keystore, and StudCraft's settings are excluded from Android backups. On Mac, API keys are stored in the macOS Keychain.</p>
 
       <h2>Web app</h2>
-      <p>The web app has no StudCraft server, ads, or analytics. You can use it without an account. Images and mosaics are processed in your browser and are sent only when you run an AI action. API keys stay in memory and are cleared when the tab closes, unless you choose to remember them on that device, where they are encrypted with your passphrase. The passphrase is not stored. Display preferences and your in-progress editor draft may be saved in your browser and are not uploaded. Like any website, GitHub Pages receives basic connection information, such as your IP address, when it serves the page.</p>
+      <p>The web app has no StudCraft server, ads, or analytics. You can use it without an account. Images and mosaics are processed in your browser and are sent only when you run an AI action. API keys stay in memory and are cleared when the tab closes, unless you choose to remember them on that device, where they are encrypted with your passphrase. The passphrase is not stored. Display preferences may be saved in your browser. Your in-progress editor draft is saved in your browser, encrypted with a device key, and is not uploaded unless you turn on Drive auto-save. Like any website, GitHub Pages receives basic connection information, such as your IP address, when it serves the page.</p>
 
       <h2>Optional Google sign-in (web app)</h2>
       <p>If you choose Sign in with Google, StudCraft uses Firebase Authentication, a Google service, to identify you. It requests only your basic Google profile: name, email address, and profile identifier. Sign-in does not request access to your Google Drive. Your browser keeps you signed in on that device until you sign out or clear its site data.</p>
@@ -42,8 +42,10 @@
       <h2>Cloud Library</h2>
       <p>When you save a mosaic while signed in, its title, notes, source label, sample name if any, build settings, piece count, estimated costs, build score, and timestamps are stored in Google Cloud Firestore under your account and are available in StudCraft on your other devices. Images, AI API keys, and encrypted settings backups are not uploaded to the Cloud Library. You can delete saved mosaics in the app. Signing out does not delete them.</p>
 
-      <h2>Encrypted settings backups</h2>
-      <p>You can create a passphrase-encrypted backup of your keys and settings. It is encrypted on your device before it is saved or uploaded, and the passphrase is never stored, so a lost passphrase cannot be recovered. On Android you can store it in your own Google Drive. On Mac and web it is a file you save where you choose.</p>
+      <h2>Encrypted Google Drive backups and auto-save</h2>
+      <p>If you choose, StudCraft can back up your settings and auto-save projects to the <strong>App Backups/StudCraft</strong> folder in your own Google Drive. This uses Google's limited <code>drive.file</code> permission, which lets StudCraft access only files it created or that you opened with it, and is requested separately from sign-in.</p>
+      <p>Your keys, settings, project titles, notes, mosaics and any saved source image are encrypted on your device with AES-256-GCM before upload. Your passphrase is never stored or sent, so a lost passphrase cannot be recovered. Google and the developer cannot read the encrypted contents. Google can still see your account, the number and size of encrypted files, and when they change. Encryption cannot protect data on a compromised or unlocked device.</p>
+      <p>Drafts and queued saves on your device are also encrypted. Mosaics already in the Cloud Library stay in Firestore and are not end-to-end encrypted unless you move them to encrypted storage and delete the originals.</p>
 
       <h2>Optional Google account (Android)</h2>
       <p>If you sign in with Google, Firebase Authentication receives your Google account ID, name, email address and profile details. Mosaics and voice notes you choose to save to the cloud are stored in Cloud Firestore under your account, where security rules limit access to you. As the app's operator, the developer can administer this database but does not sell or share its contents.</p>
@@ -63,7 +65,7 @@
 
       <h2>Other services you choose to use</h2>
       <ul>
-        <li><strong>Google Drive (Android, optional)</strong> — backups you create are saved to your own Drive. StudCraft can access only files it created there.</li>
+        <li><strong>Google Drive (optional)</strong> — mosaic and parts backups you create on Android may be saved unencrypted in your own Drive. Settings backups and auto-saved projects are encrypted as described above.</li>
         <li><strong>Rebrickable, BrickLink and Brick Owl (optional)</strong> — your keys or tokens and the part or list details needed for the action you request.</li>
         <li><strong>Your own webhook (optional)</strong> — mosaic details are sent to the address you enter when you fire it.</li>
         <li><strong>Store links</strong> — these open the store's website, where its own privacy policy applies.</li>
@@ -81,6 +83,7 @@
         <li>Uninstall StudCraft or clear its storage to delete data stored on your Android device. On Mac, delete the app and its saved keys from Keychain.</li>
         <li>To delete your StudCraft account and all of its cloud data, email <a href="mailto:drseussfreak@gmail.com?subject=StudCraft%20account%20deletion">drseussfreak@gmail.com</a> from your account's address.</li>
         <li>In the web app, use Forget keys, or clear this site's data in your browser.</li>
+        <li>Delete encrypted Drive projects in StudCraft or from your Google Drive, including its trash.</li>
         <li>Data held by AI providers, marketplaces and Google Drive is managed with those services.</li>
       </ul>
 
@@ -92,7 +95,7 @@
 
       <h2>Contact</h2>
       <p>Questions: <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a></p>
-      <p>LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this app.</p>
+      <p>Set inventory data derived from the Rebrickable database (rebrickable.com). LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this app.</p>
     </div>
   </main>
 
