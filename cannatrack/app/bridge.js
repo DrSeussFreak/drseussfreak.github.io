@@ -18,7 +18,37 @@ window.ctWeb = (() => {
   }
   document.addEventListener('visibilitychange', acquireWake);
 
-  return {
+  // Google only opens its token window from a click or key press, so wait for the next one.
+  let pending = null;
+  function stopWaiting() {
+    if (!pending) return null;
+    const p = pending;
+    pending = null;
+    removeEventListener('pointerup', p.onGesture, true);
+    removeEventListener('keydown', p.onGesture, true);
+    p.banner.remove();
+    return p;
+  }
+
+  const api = {
+    waitForGesture(hint) {
+      stopWaiting()?.resolve(null);
+      return new Promise(resolve => {
+        const banner = document.createElement('button');
+        banner.textContent = 'Click to reconnect to Google';
+        banner.style.cssText = 'position:fixed;z-index:10;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));' +
+          'max-width:calc(100vw - 32px);padding:12px 20px;border:0;border-radius:24px;background:#8fd6a0;color:#10301c;font:600 15px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px #0008';
+        const onGesture = () => {
+          stopWaiting();
+          api.requestToken(hint).then(resolve, () => resolve(null));
+        };
+        pending = { resolve, onGesture, banner };
+        addEventListener('pointerup', onGesture, true);
+        addEventListener('keydown', onGesture, true);
+        document.body.appendChild(banner);
+      });
+    },
+    cancelWait() { stopWaiting()?.resolve(null); },
     ready() { document.getElementById('loading')?.remove(); },
     isDemo() { return new URLSearchParams(location.search).has('demo'); },
     today() {
@@ -112,4 +142,5 @@ window.ctWeb = (() => {
       return JSON.stringify(out);
     },
   };
+  return api;
 })();
