@@ -5,6 +5,9 @@ import { LIMITS, UserError, displayName, redact, validateImageBytes } from './se
 import { SCENE_LIMITS, paintScene } from './drawing.js';
 import { KeyStore, MIN_PASSPHRASE, clearVault, decryptKeys, encryptKeys, readVault, writeVault } from './vault.js';
 import { colorMap, drawMosaic, drawStep } from './render.js';
+import { FILE_NAME, MAX_FILE_BYTES, VaultError, describePayload, openVault, passphraseProblem, sealVault, vaultTheme, webTheme } from './settings-vault.js';
+import { SESSION_HINT, createCloud } from './cloud.js';
+import { accountView, authMessage, cloudMessage } from './cloud-model.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,13 +33,13 @@ function localStore() { try { return window.localStorage; } catch { return null;
 
 /* ---------- status ---------- */
 let statusTimer;
-function notify(message, isError = false) {
+function notify(message, isError = false, ms = isError ? 9000 : 3500) {
   const box = $('status');
   box.textContent = message;
   box.classList.toggle('error', isError);
   box.hidden = false;
   clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => { box.hidden = true; }, isError ? 9000 : 3500);
+  statusTimer = setTimeout(() => { box.hidden = true; }, ms);
 }
 
 /* ---------- worker ---------- */
@@ -62,7 +65,7 @@ function callWorker(type, payload, transfer = []) {
 }
 
 /* ---------- state ---------- */
-const state = { catalog: null, colors: new Map(), source: null, result: null, step: 0, name: '' };
+const state = { catalog: null, colors: new Map(), source: null, result: null, step: 0, name: '', sampleId: null, requested: 0, built: 0 };
 
 const SAMPLES = [
   { id: 'wave', title: 'Sunset Wave' },
@@ -80,13 +83,14 @@ function applyTheme(theme) {
 }
 
 /* ---------- tabs ---------- */
-const TABS = ['studio', 'parts', 'guide', 'export', 'ai'];
+const TABS = ['studio', 'parts', 'guide', 'export', 'ai', 'library'];
 function showTab(name) {
   for (const t of TABS) {
     $(`tab-${t}`).hidden = t !== name;
     $(`tabbtn-${t}`).setAttribute('aria-selected', String(t === name));
   }
   if (name === 'guide') renderStep();
+  if (name === 'library' && library.user && !library.loaded) refreshLibrary();
   window.scrollTo({ top: 0 });
 }
 
@@ -98,7 +102,7 @@ function fitDimensions(w, h) {
   return [even(Math.round(longest * (w / h))), longest];
 }
 
-function setSource(image, width, height, name) {
+function setSource(image, width, height, name, sampleId = null) {
   const scale = Math.min(1, LIMITS.workSide / Math.max(width, height));
   const w = Math.max(1, Math.round(width * scale));
   const h = Math.max(1, Math.round(height * scale));
@@ -119,6 +123,7 @@ function setSource(image, width, height, name) {
   clearTimeout(statusTimer);
   $('status').hidden = true;
   state.name = name;
+  state.sampleId = sampleId;
   $('sourceName').textContent = name;
   const preview = $('sourceCanvas');
   const previewScale = Math.min(1, 480 / Math.max(w, h));
@@ -158,9 +163,12 @@ async function openFile(file) {
   }
 }
 
-function loadSample(sample) {
+function loadSample(sample, then) {
   const image = new Image();
-  image.onload = () => setSource(image, image.naturalWidth, image.naturalHeight, sample.title);
+  image.onload = () => {
+    setSource(image, image.naturalWidth, image.naturalHeight, sample.title, sample.id);
+    then?.();
+  };
   image.onerror = () => notify("That sample couldn't load.", true);
   image.src = `assets/sample-${sample.id}.jpg`;
 }
@@ -206,6 +214,7 @@ let timer;
 let running = false;
 let again = false;
 function scheduleConvert(now = false) {
+  state.requested += 1;
   syncLabels();
   clearTimeout(timer);
   timer = setTimeout(runConvert, now ? 0 : 140);
@@ -215,11 +224,13 @@ async function runConvert() {
   if (!state.source) return;
   if (running) { again = true; return; }
   running = true;
+  const building = state.requested;
   $('busy').hidden = false;
   try {
     const copy = state.source.argb.slice();
     const json = await callWorker('convert', { argb: copy.buffer, width: state.source.width, height: state.source.height, config: readConfig() }, [copy.buffer]);
     state.result = JSON.parse(json);
+    state.built = building;
     state.step = Math.min(state.step, Math.max(0, state.result.steps.length - 1));
     renderAll();
   } catch (e) {
@@ -528,6 +539,306 @@ function forgetKeys() {
   vaultMessage('Keys forgotten on this device.');
 }
 
+/* ---------- encrypted settings backup ---------- */
+let pendingRestore = null;
+
+function backupMessage(text) { $('backupStatus').textContent = text; }
+
+function clearPendingRestore() {
+  pendingRestore = null;
+  $('restoreReview').hidden = true;
+  $('restoreItems').replaceChildren();
+  $('restoreIgnored').textContent = '';
+  $('restoreRemember').checked = false;
+}
+
+async function exportSettings() {
+  const first = $('backupPassphrase');
+  const second = $('backupPassphrase2');
+  const problem = passphraseProblem(first.value, second.value);
+  if (problem) { backupMessage(problem); return; }
+  $('exportSettings').disabled = true;
+  backupMessage('Encrypting…');
+  try {
+    const theme = vaultTheme($('themeBtn').dataset.theme);
+    const text = await sealVault({
+      createdAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+      createdBy: 'web',
+      ai: { enabledProviders: [...enabled], keys: keys.snapshot(), models: { claude: settings.claudeModel.trim(), openai: settings.openAiModel.trim() } },
+      preferences: theme ? { themeMode: theme } : {},
+    }, first.value);
+    download(text, FILE_NAME, 'application/octet-stream');
+    first.value = '';
+    second.value = '';
+    backupMessage('Encrypted backup downloaded. Move it to your Google Drive folder to back it up.');
+  } catch {
+    backupMessage('This browser could not create the backup.');
+  } finally {
+    $('exportSettings').disabled = false;
+  }
+}
+
+async function chooseImport(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  clearPendingRestore();
+  if (!file) return;
+  const phrase = $('backupPassphrase');
+  if (file.size > MAX_FILE_BYTES) { backupMessage('This file is too large to be a StudCraft settings backup. Nothing was restored.'); return; }
+  if (!phrase.value) { backupMessage('Enter the backup passphrase first, then choose the file.'); return; }
+  backupMessage('Decrypting…');
+  try {
+    const payload = await openVault(new Uint8Array(await file.arrayBuffer()), phrase.value);
+    const { replaced, ignored } = describePayload(payload);
+    if (replaced.length === 0) { backupMessage('This backup has nothing this browser can restore.'); return; }
+    pendingRestore = { payload, phrase: phrase.value };
+    phrase.value = '';
+    $('backupPassphrase2').value = '';
+    $('restoreItems').replaceChildren(...replaced.map((item) => el('li', { text: item })));
+    $('restoreIgnored').textContent = ignored.length ? `Not used on the web, so left out: ${ignored.join(', ')}.` : '';
+    $('restoreReview').hidden = false;
+    backupMessage('Review what will be replaced.');
+  } catch (e) {
+    backupMessage(e instanceof VaultError ? e.message : 'This backup could not be opened. Nothing was restored.');
+  }
+}
+
+async function confirmRestore() {
+  if (!pendingRestore) return;
+  const { payload, phrase } = pendingRestore;
+  $('confirmRestore').disabled = true;
+  try {
+    const incoming = Object.fromEntries(Object.entries(payload.keys).filter(([, v]) => v));
+    if ($('restoreRemember').checked) {
+      // Written first: if the browser refuses, the keys in this tab haven't changed either.
+      writeVault(vaultStorage, await encryptKeys({ ...keys.snapshot(), ...incoming }, phrase));
+    }
+    keys.load(incoming);
+    clients.forgetModels();
+    if (payload.enabledProviders) {
+      enabled.clear();
+      for (const id of payload.enabledProviders) enabled.add(id);
+      for (const id of PROVIDER_IDS) $(`enable-${id}`).checked = enabled.has(id);
+    }
+    if (payload.models.claude) modelInputs.claude.value = payload.models.claude.slice(0, 80);
+    if (payload.models.openai) modelInputs.openai.value = payload.models.openai.slice(0, 80);
+    const theme = webTheme(payload.preferences.themeMode);
+    if (theme) { applyTheme(theme); store.set('studcraft.theme', theme); }
+    PROVIDER_IDS.forEach(refreshKeyField);
+    refreshVaultButtons();
+    clearPendingRestore();
+    backupMessage('Settings restored to this tab.');
+  } catch {
+    backupMessage('This browser could not save the keys. Nothing was restored.');
+  } finally {
+    $('confirmRestore').disabled = false;
+  }
+}
+
+/* ---------- account and Cloud Library ---------- */
+const library = { user: null, items: [], loaded: false, confirming: null, busy: false, epoch: 0 };
+const cloud = createCloud({ storage: localStore(), onUser: showAccount });
+
+function libraryMessage(text, isError = false) {
+  $('libraryStatus').textContent = text;
+  $('libraryStatus').classList.toggle('error', isError);
+}
+
+/** Drops every piece of signed-in data from memory and the page. Device-only keys are untouched. */
+function clearLibrary() {
+  library.epoch += 1;
+  library.items = [];
+  library.loaded = false;
+  library.confirming = null;
+  library.busy = false;
+  $('libraryList').replaceChildren();
+  $('cloudTitle').value = '';
+  $('cloudNotes').value = '';
+  $('cloudSave').disabled = false;
+  $('cloudRefresh').disabled = false;
+  libraryMessage('');
+}
+
+function showAccount(user) {
+  const changed = (library.user?.uid ?? null) !== (user?.uid ?? null);
+  if (changed) clearLibrary();
+  library.user = user ?? null;
+  const signedIn = Boolean(user);
+  const view = signedIn ? accountView(user) : { name: '', email: '', initial: '' };
+  $('accountName').textContent = view.name;
+  $('accountEmail').textContent = view.email;
+  $('accountAvatar').textContent = view.initial;
+  $('accountInfo').hidden = !signedIn;
+  $('signInBtn').hidden = signedIn;
+  $('signInBtn').disabled = false;
+  $('signInBtn').textContent = 'Sign in with Google';
+  $('libraryGuest').hidden = signedIn;
+  $('libraryMember').hidden = !signedIn;
+  document.documentElement.dataset.account = signedIn ? 'in' : 'out';
+  if (signedIn && changed && !$('tab-library').hidden) refreshLibrary();
+}
+
+async function signIn() {
+  $('signInBtn').disabled = true;
+  $('librarySignIn').disabled = true;
+  try {
+    await cloud.signIn();
+  } catch (e) {
+    const message = authMessage(e);
+    if (message) notify(message, true);
+  } finally {
+    $('signInBtn').disabled = false;
+    $('librarySignIn').disabled = false;
+  }
+}
+
+async function signOut() {
+  $('signOutBtn').disabled = true;
+  clearLibrary();
+  try {
+    await cloud.signOut();
+    notify('Signed out. Keys saved on this device were not changed.');
+  } catch {
+    notify('StudCraft could not sign out. Try again.', true);
+  } finally {
+    $('signOutBtn').disabled = false;
+  }
+}
+
+function friendlyDate(ms) {
+  return ms === null ? '' : new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function renderLibrary() {
+  $('libraryList').replaceChildren(...library.items.map((m) => {
+    const meta = [`${m.width}×${m.height} studs`, `${m.pieces.toLocaleString('en-US')} pieces`, money(m.pab), friendlyDate(m.updatedAt)].filter(Boolean).join(' · ');
+    const actions = library.confirming === m.id
+      ? [el('span', { class: 'hint', text: 'Delete permanently?' }),
+        el('button', { class: 'btn danger', type: 'button', text: 'Delete', 'data-confirm-delete': m.id, onclick: () => deleteSaved(m) }),
+        el('button', { class: 'btn ghost', type: 'button', text: 'Keep', onclick: () => { library.confirming = null; renderLibrary(); } })]
+      : [el('button', { class: 'btn ghost', type: 'button', text: m.sample ? 'Rebuild' : 'Use settings', 'data-load': m.id, onclick: () => openSaved(m) }),
+        el('button', { class: 'btn ghost', type: 'button', text: 'Delete', 'data-delete': m.id, onclick: () => { library.confirming = m.id; renderLibrary(); } })];
+    return el('div', { class: 'list-item', 'data-mosaic': m.id },
+      el('div', {},
+        el('strong', { class: 'saved-title', text: m.title }),
+        el('p', { text: meta }),
+        el('p', { text: m.sample ? 'Sample image can be rebuilt' : 'Settings only, no image stored' }),
+        m.notes ? el('p', { class: 'saved-notes', text: m.notes }) : null),
+      el('div', { class: 'list-actions' }, ...actions));
+  }));
+}
+
+async function refreshLibrary() {
+  if (!library.user || library.busy) return;
+  const epoch = library.epoch;
+  library.busy = true;
+  $('cloudRefresh').disabled = true;
+  libraryMessage('Loading…');
+  try {
+    const out = await cloud.list();
+    if (epoch !== library.epoch || !out) return;
+    library.items = out.items;
+    library.loaded = true;
+    library.confirming = null;
+    renderLibrary();
+    const skipped = out.unreadable ? ` ${out.unreadable} saved item${out.unreadable === 1 ? '' : 's'} could not be read.` : '';
+    libraryMessage(out.items.length ? `${out.items.length} saved mosaic${out.items.length === 1 ? '' : 's'}.${skipped}` : `Nothing saved yet.${skipped}`);
+  } catch (e) {
+    if (epoch === library.epoch) libraryMessage(cloudMessage(e), true);
+  } finally {
+    if (epoch === library.epoch) {
+      library.busy = false;
+      $('cloudRefresh').disabled = false;
+    }
+  }
+}
+
+async function saveToLibrary() {
+  if (!library.user || !needResult()) return;
+  if (state.built !== state.requested) { libraryMessage('Wait for the mosaic to finish updating, then save.', true); return; }
+  const epoch = library.epoch;
+  const sample = SAMPLES.find((s) => s.id === state.sampleId);
+  $('cloudSave').disabled = true;
+  libraryMessage('Saving…');
+  try {
+    // A personal file name is not uploaded: only samples keep their name.
+    await cloud.save({ title: $('cloudTitle').value, notes: $('cloudNotes').value, sampleId: sample?.id ?? null, sourceLabel: sample?.title ?? 'Custom Photo', config: readConfig(), result: state.result });
+    if (epoch !== library.epoch) return;
+    $('cloudTitle').value = '';
+    $('cloudNotes').value = '';
+    $('cloudSave').disabled = false;
+    await refreshLibrary();
+    if (epoch === library.epoch && library.loaded) libraryMessage('Saved to your Cloud Library.');
+  } catch (e) {
+    if (epoch === library.epoch) libraryMessage(cloudMessage(e), true);
+  } finally {
+    if (epoch === library.epoch) $('cloudSave').disabled = false;
+  }
+}
+
+async function deleteSaved(mosaic) {
+  if (library.confirming !== mosaic.id) return;
+  const epoch = library.epoch;
+  library.confirming = null;
+  libraryMessage('Deleting…');
+  try {
+    await cloud.remove(mosaic.id);
+    if (epoch !== library.epoch) return;
+    library.items = library.items.filter((m) => m.id !== mosaic.id);
+    renderLibrary();
+    libraryMessage('Deleted.');
+  } catch (e) {
+    if (epoch === library.epoch) { renderLibrary(); libraryMessage(cloudMessage(e), true); }
+  }
+}
+
+function selectIfKnown(id, value) {
+  const known = [...$(id).options].some((o) => o.value === value);
+  if (known) $(id).value = value;
+  return known;
+}
+
+function applySaved(m) {
+  $('gridW').value = m.width;
+  $('gridH').value = m.height;
+  syncPreset();
+  const known = [selectIfKnown('style', m.style), selectIfKnown('backing', m.backing), selectIfKnown('palette', m.palette), selectIfKnown('rarity', m.rarity)].every(Boolean);
+  $('tolerance').value = String(m.tolerance);
+  $('dither').checked = m.dither;
+  $('legal').checked = m.legal;
+  scheduleConvert(true);
+  return known;
+}
+
+let openRequest = 0;
+function openSaved(m) {
+  const request = ++openRequest;
+  const finish = () => {
+    if (request !== openRequest) return;
+    const known = applySaved(m);
+    showTab('studio');
+    const partial = known ? '' : ' Some saved options are not available here, so the current ones were kept.';
+    if (m.sample) notify(`Rebuilt from the sample with the saved settings.${partial}`, false, 9000);
+    else notify(`No image is stored with this mosaic, so it can't be fully recreated. Its settings were applied to the image open now.${partial}`, false, 12000);
+  };
+  const sample = SAMPLES.find((s) => s.id === m.sample);
+  if (sample) loadSample(sample, finish); else finish();
+}
+
+async function restoreAccount() {
+  if (!document.documentElement.classList.contains('unframed')) return; // Never restore a session inside a frame.
+  if (!cloud.hasSessionHint()) { showAccount(null); return; }
+  $('signInBtn').disabled = true;
+  $('signInBtn').textContent = 'Restoring sign-in…';
+  try {
+    await cloud.prepare();
+  } catch {
+    showAccount(null);
+    notify('StudCraft could not restore your sign-in. You can keep working as a guest.', true);
+  }
+}
+
 async function runAi(mode) {
   const prompt = $('prompt');
   const text = prompt.value;
@@ -607,9 +918,25 @@ function wire() {
     copy(await callWorker('summary'), 'Build summary copied.');
   });
 
+  for (const id of ['signInBtn', 'librarySignIn']) {
+    $(id).addEventListener('click', signIn);
+    // Loads the SDK just before the click, so browsers keep treating the sign-in window as user-initiated.
+    for (const type of ['pointerenter', 'focus', 'touchstart']) $(id).addEventListener(type, () => { cloud.prepare().catch(() => {}); }, { passive: true });
+  }
+  $('signOutBtn').addEventListener('click', signOut);
+  $('cloudSave').addEventListener('click', saveToLibrary);
+  $('cloudRefresh').addEventListener('click', refreshLibrary);
+  window.addEventListener('storage', (e) => {
+    if (e.key === SESSION_HINT && e.newValue === '1') cloud.prepare().catch(() => {});
+  });
+
   $('saveVault').addEventListener('click', saveVault);
   $('unlockVault').addEventListener('click', unlockVault);
   $('forgetKeys').addEventListener('click', forgetKeys);
+  $('exportSettings').addEventListener('click', exportSettings);
+  $('importSettings').addEventListener('change', chooseImport);
+  $('confirmRestore').addEventListener('click', confirmRestore);
+  $('cancelRestore').addEventListener('click', () => { clearPendingRestore(); backupMessage('Restore cancelled. Nothing was changed.'); });
   $('askBtn').addEventListener('click', () => runAi('auto'));
   $('createBtn').addEventListener('click', () => runAi('image'));
   $('clearChat').addEventListener('click', () => {
@@ -618,7 +945,7 @@ function wire() {
     for (const url of imageUrls) URL.revokeObjectURL(url);
     imageUrls.clear();
   });
-  window.addEventListener('pagehide', () => { keys.clear(); clients.forgetModels(); enabled.clear(); });
+  window.addEventListener('pagehide', () => { clearPendingRestore(); keys.clear(); clients.forgetModels(); enabled.clear(); });
   window.addEventListener('pageshow', (e) => {
     if (!e.persisted) return;
     for (const id of PROVIDER_IDS) { $(`enable-${id}`).checked = false; refreshKeyField(id); }
@@ -646,6 +973,7 @@ async function main() {
   renderExports();
   document.documentElement.dataset.ready = 'true';
   loadSample(SAMPLES[0]);
+  restoreAccount();
 }
 
 main().catch(() => notify('StudCraft could not start in this browser.', true));

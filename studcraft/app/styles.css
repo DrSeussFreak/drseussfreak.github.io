@@ -31,7 +31,7 @@ p { margin: 0; } a { color: var(--blue); }
 .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .logo { border-radius: 10px; flex: none; }
 .brand { flex: 1; } .brand p { font-size: 12px; color: var(--muted); }
-.tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface); border-bottom: 1px solid var(--line); }
+.tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6, 1fr); background: var(--surface); border-bottom: 1px solid var(--line); }
 .tabs button { padding: 12px 2px; background: none; border: 0; border-bottom: 3px solid transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
 .tabs button[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
 .status { margin: 12px 16px 0; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft); color: var(--ink); }
@@ -106,6 +106,28 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .turn small { display: block; font-weight: 700; color: var(--muted); }
 .turn img { display: block; width: 100%; max-width: 320px; margin: 6px 0; border-radius: 8px; }
 .footer { padding: 16px; text-align: center; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+/* account and Cloud Library */
+.topbar { flex-wrap: wrap; }
+.account { display: flex; align-items: center; }
+.account-info { display: flex; align-items: center; gap: 8px; max-width: 320px; }
+.avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--primary-soft); color: var(--ink); font-weight: 700; }
+.account-text { display: grid; line-height: 1.2; }
+.account-text strong, .account-text small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.account-text strong { font-size: 13px; } .account-text small { font-size: 11px; color: var(--muted); }
+.account .btn { flex: none; white-space: nowrap; }
+.library { display: grid; gap: 14px; }
+.library-status:not(:empty) { margin: 8px 0; color: var(--ink); }
+.library-status.error { color: var(--primary); }
+.saved-title { overflow-wrap: anywhere; }
+.saved-notes { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+@media (max-width: 560px) {
+  .account { order: 3; flex: 1 0 100%; }
+  .account > .btn { width: 100%; }
+  .account-info { flex: 1; max-width: none; }
+  .account-text { flex: 1; }
+}
+
 @media (max-width: 860px) {
   .studio { grid-template-columns: minmax(0, 1fr); }
   .preview-col { position: static; order: -1; }
@@ -113,3 +135,7 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
   .brand p { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) { .tabs button, .btn { transition: background-color .15s, border-color .15s; } }
+
+.restore-review { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.restore-review ul { margin: 6px 0; padding-left: 20px; font-size: 14px; }
+#backupPassphrase, #backupPassphrase2 { margin-top: 8px; }

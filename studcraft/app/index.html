@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self'; connect-src https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://apis.google.com/js/api.js https://apis.google.com/_/scs/; style-src 'self'; img-src 'self' blob: data:; worker-src 'self'; connect-src https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com; frame-src https://studcraft-cf85b.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Turn any image into a buildable brick mosaic, right in your browser.">
 <title>StudCraft</title>
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
-  <link rel="apple-touch-icon" href="assets/favicon-180.png">
+<link rel="apple-touch-icon" href="assets/favicon-180.png">
 <link rel="stylesheet" href="styles.css">
 <script src="js/guard.js"></script>
 <script type="module" src="js/boot.js"></script>
@@ -18,6 +18,14 @@
 <header class="topbar">
   <img class="logo" src="assets/icon.png" alt="" width="40" height="40">
   <div class="brand"><h1>StudCraft</h1><p>Turn any image into a buildable brick mosaic</p></div>
+  <div class="account">
+    <button id="signInBtn" class="btn" type="button">Sign in with Google</button>
+    <div id="accountInfo" class="account-info" hidden>
+      <span id="accountAvatar" class="avatar" aria-hidden="true"></span>
+      <span class="account-text"><strong id="accountName"></strong><small id="accountEmail"></small></span>
+      <button id="signOutBtn" class="btn ghost" type="button">Sign out</button>
+    </div>
+  </div>
   <button id="themeBtn" class="btn ghost" type="button">Theme: Auto</button>
 </header>
 
@@ -27,6 +35,7 @@
   <button role="tab" id="tabbtn-guide" aria-controls="tab-guide" aria-selected="false" type="button">Guide</button>
   <button role="tab" id="tabbtn-export" aria-controls="tab-export" aria-selected="false" type="button">Export</button>
   <button role="tab" id="tabbtn-ai" aria-controls="tab-ai" aria-selected="false" type="button">AI</button>
+  <button role="tab" id="tabbtn-library" aria-controls="tab-library" aria-selected="false" type="button">Library</button>
 </nav>
 
 <div id="status" class="status" role="status" aria-live="polite" hidden></div>
@@ -129,6 +138,29 @@
     </div>
   </div>
   <div class="card">
+    <h2>Encrypted settings backup</h2>
+    <p class="hint">Download your AI keys, models, and theme in one file locked with a passphrase of at least 12 characters, then keep it in your Google Drive folder. It also opens in StudCraft for Android and Mac. The passphrase is never stored. If you lose it, this backup cannot be recovered.</p>
+    <input id="backupPassphrase" type="password" autocomplete="off" spellcheck="false" aria-label="Backup passphrase" placeholder="Backup passphrase">
+    <input id="backupPassphrase2" type="password" autocomplete="off" spellcheck="false" aria-label="Repeat backup passphrase" placeholder="Repeat passphrase (for export)">
+    <div class="btn-row">
+      <button id="exportSettings" class="btn ghost" type="button">Export encrypted settings</button>
+      <label class="btn ghost" for="importSettings">Import encrypted settings</label>
+    </div>
+    <input id="importSettings" class="visually-hidden" type="file" accept=".vault" aria-label="Import encrypted settings">
+    <div id="restoreReview" class="restore-review" hidden>
+      <h3>Replace these settings?</h3>
+      <ul id="restoreItems"></ul>
+      <p id="restoreIgnored" class="hint"></p>
+      <p class="hint">Anything not listed stays as it is.</p>
+      <label class="switch"><input id="restoreRemember" type="checkbox"><span>Also remember keys on this device, encrypted with this passphrase</span></label>
+      <div class="btn-row">
+        <button id="confirmRestore" class="btn" type="button">Replace</button>
+        <button id="cancelRestore" class="btn ghost" type="button">Cancel</button>
+      </div>
+    </div>
+    <p id="backupStatus" class="hint" role="status"></p>
+  </div>
+  <div class="card">
     <h2>Ask or create</h2>
     <div id="chat" class="chat" aria-live="polite"></div>
     <p id="aiNotice" class="hint" role="status"></p>
@@ -137,6 +169,29 @@
       <button id="askBtn" class="btn" type="button">Ask</button>
       <button id="createBtn" class="btn ghost" type="button">Create image</button>
       <button id="clearChat" class="btn ghost" type="button">Clear</button>
+    </div>
+  </div>
+</section>
+
+<section id="tab-library" role="tabpanel" aria-labelledby="tabbtn-library" hidden>
+  <div id="libraryGuest" class="card">
+    <h2>Cloud Library</h2>
+    <p class="hint">Sign in with Google to keep mosaic settings in your account and open them on Android or here. Everything else in StudCraft works without an account.</p>
+    <div class="btn-row"><button id="librarySignIn" class="btn" type="button">Sign in with Google</button></div>
+  </div>
+  <div id="libraryMember" class="library" hidden>
+    <div class="card">
+      <h2>Save current mosaic</h2>
+      <p class="hint">Saves the title, notes, build settings, and totals to your account. Images, AI keys, and settings backups are never uploaded.</p>
+      <label class="field">Title<input id="cloudTitle" type="text" maxlength="100" autocomplete="off" placeholder="Optional"></label>
+      <label class="field">Notes<textarea id="cloudNotes" rows="2" maxlength="1000"></textarea></label>
+      <div class="btn-row"><button id="cloudSave" class="btn" type="button">Save to Cloud Library</button></div>
+    </div>
+    <div class="card">
+      <div class="row-between"><h2>Your saved mosaics</h2><button id="cloudRefresh" class="btn ghost" type="button">Refresh</button></div>
+      <p class="hint">Saved mosaics do not include an image. Samples can be rebuilt. For your own images, the settings are applied to the image open now. Brightness, contrast, and saturation are not saved.</p>
+      <p id="libraryStatus" class="hint library-status" role="status"></p>
+      <div id="libraryList" class="list"></div>
     </div>
   </div>
 </section>
