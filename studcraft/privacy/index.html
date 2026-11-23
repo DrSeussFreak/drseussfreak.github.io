@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StudCraft Privacy Policy</title>
+  <meta name="description" content="How StudCraft handles your information.">
+  <link rel="icon" href="/assets/apps/studcraft-icon.png">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/assets/brand/icon-256.png" alt=""><span>DrSeussFreak Inc.</span></a>
+      <nav><a href="/studcraft/">StudCraft</a><a href="mailto:drseussfreak@gmail.com">Contact</a></nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1>StudCraft Privacy Policy</h1>
+    <p class="lead">Last updated: November 23, 2026</p>
+
+    <div class="policy">
+      <p>StudCraft, made by DrSeussFreak Inc., turns pictures into brick mosaics. You can use it without an account. This policy explains what stays on your device and what is sent when you use optional features.</p>
+
+      <h2>What the app stores on your device</h2>
+      <ul>
+        <li>Images you choose or create, and your mosaic settings and build progress</li>
+        <li>Your app preferences and any webhook address</li>
+        <li>API keys and tokens you add for AI providers, marketplaces and webhooks</li>
+      </ul>
+      <p>On Android, API keys and tokens are encrypted with a key held in Android Keystore, and StudCraft's settings are excluded from Android backups. On Mac, API keys are stored in the macOS Keychain.</p>
+
+      <h2>Optional Google account (Android)</h2>
+      <p>If you sign in with Google, Firebase Authentication receives your Google account ID, name, email address and profile details. Mosaics and voice notes you choose to save to the cloud are stored in Cloud Firestore under your account, where security rules limit access to you. As the app's operator, the developer can administer this database but does not sell or share its contents.</p>
+
+      <h2>AI features</h2>
+      <p>AI features send your request and the context needed to answer it to the providers that are turned on, or to your other saved providers if those fail. That can include your typed or spoken text after transcription, a small copy of your image, and mosaic details such as size, colors, parts and pricing.</p>
+      <ul>
+        <li><strong>Built-in Gemini (Android)</strong> — uses Firebase AI Logic on Google's free tier. Google's terms allow content sent on this tier to be used to improve its products, so do not send anything private.</li>
+        <li><strong>Your own Gemini key</strong> — requests go to Google under your account and its terms.</li>
+        <li><strong>Your own Claude key</strong> — requests go to Anthropic under your account and its terms.</li>
+        <li><strong>Your own OpenAI key</strong> — requests go to OpenAI under your account and its terms.</li>
+      </ul>
+      <p>Usage with your own key may be billed to that provider account. Firebase App Check may send device and app integrity information to Google to help prevent abuse.</p>
+
+      <h2>Camera, photos and microphone (Android)</h2>
+      <p>The camera is used only when you take a photo. The photo picker gives StudCraft only the images you select. The microphone is used only while you are recording. Spoken input is handled by your device's speech recognition service, which may process audio through its provider, usually Google. If that service is unavailable, the recording may be sent to Gemini for transcription.</p>
+
+      <h2>Other services you choose to use</h2>
+      <ul>
+        <li><strong>Google Drive (Android, optional)</strong> — backups you create are saved to your own Drive. StudCraft can access only files it created there.</li>
+        <li><strong>Rebrickable, BrickLink and Brick Owl (optional)</strong> — your keys or tokens and the part or list details needed for the action you request.</li>
+        <li><strong>Your own webhook (optional)</strong> — mosaic details are sent to the address you enter when you fire it.</li>
+        <li><strong>Store links</strong> — these open the store's website, where its own privacy policy applies.</li>
+      </ul>
+
+      <h2>Files you export</h2>
+      <p>Exports are created only when you ask and are not encrypted. What you do with an exported file is up to you.</p>
+
+      <h2>Sharing</h2>
+      <p>Your data is not sold or used for advertising. The app contains no ads or analytics of its own. Information is shared only with the services described above, or when required by law.</p>
+
+      <h2 id="deleting-your-data">Deleting your data</h2>
+      <ul>
+        <li>Delete saved cloud mosaics and voice notes in the app's Cloud section.</li>
+        <li>Uninstall StudCraft or clear its storage to delete data stored on your Android device. On Mac, delete the app and its saved keys from Keychain.</li>
+        <li>To delete your StudCraft account and all of its cloud data, email <a href="mailto:drseussfreak@gmail.com?subject=StudCraft%20account%20deletion">drseussfreak@gmail.com</a> from your account's address.</li>
+        <li>Data held by AI providers, marketplaces and Google Drive is managed with those services.</li>
+      </ul>
+
+      <h2>Children</h2>
+      <p>StudCraft is not directed at children under 13.</p>
+
+      <h2>Changes</h2>
+      <p>If this policy changes, the updated version will be posted at this address with a new “Last updated” date.</p>
+
+      <h2>Contact</h2>
+      <p>Questions: <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a></p>
+      <p>LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this app.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 DrSeussFreak Inc.</span>
+      <span><a href="/studcraft/">StudCraft</a> · <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a></span>
+    </div>
+  </footer>
+</body>
+</html>
