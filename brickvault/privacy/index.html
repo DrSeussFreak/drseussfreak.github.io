@@ -18,7 +18,7 @@
 
   <main class="wrap">
     <h1>BrickVault Privacy Policy</h1>
-    <p class="lead">Last updated: November 21, 2026</p>
+    <p class="lead">Last updated: November 22, 2026</p>
 
     <div class="policy">
       <p>BrickVault, made by DrSeussFreak Inc., helps you track a collection of brick building sets. The developer does not run a server and never receives, sees or stores your data.</p>
@@ -26,27 +26,38 @@
       <h2>What the app stores on your device</h2>
       <ul>
         <li>Your synced sets, wishlist, quantities, prices and price history</li>
-        <li>Box codes you teach the scanner</li>
-        <li>Your settings, API keys and Brickset username and login token</li>
+        <li>Box codes and retail barcodes you confirm in the scanner</li>
+        <li>Details you add: copies, condition, box, instructions, completeness, storage location, notes, price paid, ratings, wishlist priority and target price</li>
+        <li>Sets you add by hand or import from a file or connected account, and any seller inventory you choose to import</li>
+        <li>Your settings, API keys, account tokens, Brickset username, any price tracker URL and sign-in session, and any webhook address and token</li>
       </ul>
-      <p>This is kept in the app's private storage and is excluded from Android backups. It is not separately encrypted. Your Brickset password is used only to log in and is not saved.</p>
+      <p>This is kept in the app's private storage and is excluded from Android backups. API keys, tokens, webhook details, storage locations, notes and prices paid are also encrypted with a key held in Android Keystore. Other collection data is not separately encrypted on the device. Your Brickset and Rebrickable passwords are used only to log in and are not saved.</p>
 
       <h2>Services you choose to connect</h2>
       <ul>
-        <li><strong>Brickset</strong> — your API key, username and password at login, then your login token, searches and any collection or wishlist changes you make.</li>
+        <li><strong>Brickset</strong> — your API key, username and password at login, then your login token, searches, scanned barcodes and any collection or wishlist changes you make.</li>
         <li><strong>BrickEconomy</strong> — your API key, set numbers and currency, to fetch values.</li>
         <li><strong>Best Buy</strong> — your API key, to list LEGO products on sale.</li>
+        <li><strong>Brick Owl (optional)</strong> — your API key, set numbers and shipping country, to fetch current listing prices; and, if you import your seller inventory, your API key to read your store's set listings.</li>
+        <li><strong>Rebrickable (optional)</strong> — your API key and set numbers, to fetch part counts; scanned barcodes, when Brickset can't identify them; and, if you import your account, your username and password once to get a token, then that token to read your sets.</li>
+        <li><strong>BrickLink (optional)</strong> — if you import your seller inventory, your API credentials are used to read your store's set listings.</li>
+        <li><strong>Google Drive (optional)</strong> — if you turn on encrypted backup, your collection, personal details, API keys and tokens are encrypted on your device with a key protected by your passphrase, then stored in your own Drive. Google and the developer cannot read them. BrickVault can only access files it created there.</li>
+        <li><strong>Your own webhook (optional, off by default)</strong> — if you turn it on, BrickVault sends the set number, name, price and target to the HTTPS address you enter when a target price is reached, plus any test you send.</li>
+        <li><strong>Your own price tracker (optional)</strong> — if you connect a Google Apps Script web app you control, BrickVault sends it a Google sign-in token that includes your email address, plus set numbers and prices, to get your pricing. The developer never receives this.</li>
       </ul>
       <p>Those services handle this information under their own privacy policies. Product images load from the image hosts those services use, which can see your IP address, as any website can.</p>
 
       <h2>Camera</h2>
       <p>The camera is used only on the Scan screen. Frames are analyzed on your device to read codes and text, and are not saved or sent anywhere. Google's ML Kit library, which does this, may send Google limited diagnostic information such as device and app details and performance metrics. It does not send the camera images.</p>
 
+      <h2>Files you export</h2>
+      <p>Exports are created only when you ask and saved where you choose. They are not encrypted. CSV and XML exports can include your notes, storage locations and prices paid. BrickLink XML and Markdown exports leave those out. Anything you do with an exported file, such as sharing it or pasting it into an AI assistant, is up to you.</p>
+
       <h2>Store links</h2>
       <p>Store buttons open that store's website in your browser, where the store's own privacy policy applies.</p>
 
       <h2>Notifications</h2>
-      <p>If you allow notifications, BrickVault uses them for wishlist price alerts. A daily background job updates prices from the services you connected.</p>
+      <p>If you allow notifications, BrickVault uses them for wishlist price and target-price alerts. A daily background job updates prices from the services you connected.</p>
 
       <h2>Sharing</h2>
       <p>Your data is not sold, used for advertising or used to train AI models. The app contains no ads or analytics of its own.</p>
@@ -54,7 +65,7 @@
       <h2 id="deleting-your-data">Deleting your data</h2>
       <ul>
         <li>Uninstall BrickVault, or clear its storage in Android settings, to delete everything it stores on your device.</li>
-        <li>Your Brickset, BrickEconomy and Best Buy accounts are managed with those services.</li>
+        <li>Your Brickset, BrickEconomy, Best Buy, Brick Owl, BrickLink and Rebrickable accounts are managed with those services.</li>
       </ul>
 
       <h2>Children</h2>
