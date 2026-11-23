@@ -1,15 +1,17 @@
 import { GOOGLE_CLIENT_ID } from "./config.js";
-import { NeedsUnlock, canon, decodeFile, drainInbox, encodeFile, merge, rebaseBases, recordBases, sameContent, unlockKey, verifyOff } from "./sync.js";
+import { NeedsUnlock, b64decode, b64encode, canon, decodeFile, drainInbox, emptyData, encodeFile, merge, normalize, rebaseBases, recordBases, sameContent, unlockKey, verifyOff } from "./sync.js";
+import { forgetAccount, getSession, loadAccount, saveAccount, setSession } from "./local.js";
 
-const SCOPES = "openid email profile https://www.googleapis.com/auth/drive.file";
+const LOGIN_SCOPES = "openid email profile";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FILE_NAME = "recipebox-data.json";
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert"];
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
-const HINT = "recipebox.web.email";
+const DEFAULT_CATEGORIES = ["Breakfast", "Lunch", "Dinner", "Snacks", "Condiments", "Sauces", "Spices"];
 
-// Recipes and the encryption key live only in this tab's memory. Nothing is saved in the browser except the email hint.
-const S = { email: null, name: "", token: null, tokenExp: 0, data: null, fileId: null, vault: { key: null, header: null }, bases: {},
-  status: "", error: "", running: false, again: false, lastSync: 0, unlock: null, noFile: false, screen: "signin", tab: "cookbook",
+// Google is only the sign-in. Data lives in this browser (local.js); Google Drive is an optional backup the user connects.
+const S = { email: null, name: "", token: null, tokenExp: 0, driveOn: false, data: null, fileId: null, vault: { key: null, header: null }, bases: {},
+  status: "", error: "", locked: false, running: false, again: false, lastSync: 0, unlock: null, noFile: false, screen: "loading", tab: "cookbook",
   recipe: null, editing: null, q: "", book: "", cat: "", fav: false, weekStart: mondayOf(new Date()), scale: 1 };
 
 // ---------- small helpers ----------
@@ -94,51 +96,93 @@ function gisReady() {
     })();
   });
 }
-async function requestToken(prompt) {
+async function requestToken(scope, prompt) {
   await gisReady();
   if (!tokenClient) {
     tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID, scope: SCOPES,
-      callback: (r) => {
-        const w = tokenWait; tokenWait = null;
-        if (r.error || !google.accounts.oauth2.hasGrantedAllScopes(r, "https://www.googleapis.com/auth/drive.file")) return w?.rej(new Error("Recipe Box needs Google Drive access to open your recipes."));
-        S.token = r.access_token; S.tokenExp = now() + (r.expires_in - 60) * 1000; w?.res();
-      },
+      client_id: GOOGLE_CLIENT_ID, scope: LOGIN_SCOPES,
+      callback: (r) => { const w = tokenWait; tokenWait = null; if (r.error) w?.rej(new Error("Sign-in didn't finish")); else w?.res(r); },
       error_callback: (e) => { const w = tokenWait; tokenWait = null; w?.rej(new Error(e.type === "popup_closed" ? "Sign-in was closed" : "Sign-in didn't finish")); },
     });
   }
-  return new Promise((res, rej) => { tokenWait = { res, rej }; tokenClient.requestAccessToken({ prompt, hint: S.email || localHint() || undefined }); });
+  return new Promise((res, rej) => { tokenWait = { res, rej }; tokenClient.requestAccessToken({ scope, prompt, login_hint: S.email || undefined }); });
 }
-function localHint() { try { return localStorage.getItem(HINT); } catch { return null; } }
-function saveHint(v) { try { if (v) localStorage.setItem(HINT, v); else localStorage.removeItem(HINT); } catch { /* optional */ } }
-async function token() { if (!S.token || now() > S.tokenExp) await requestToken(""); return S.token; }
-async function api(url, init = {}, retried = false) {
-  const r = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: "Bearer " + await token() } });
-  if (r.status === 401 && !retried) { S.token = null; return api(url, init, true); }
+async function whoAmI(accessToken) {
+  const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + accessToken } });
+  if (!r.ok) throw new Error("Google sign-in didn't finish");
+  return r.json();
+}
+const hasDrive = () => !!S.token && now() < S.tokenExp;
+async function api(url, init = {}) {
+  if (!hasDrive()) throw new Error("Reconnect Google Drive to back up");
+  const r = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: "Bearer " + S.token } });
+  if (r.status === 401) { S.token = null; throw new Error("Reconnect Google Drive to back up"); }
   if (!r.ok) throw new Error(`Google Drive error ${r.status}`);
   return r;
 }
+function seeded() {
+  const t = 1, book = { uid: "default-cookbook", name: "My Cookbook", createdAt: t, updatedAt: t };
+  return { ...emptyData(), cookbooks: [book], categories: DEFAULT_CATEGORIES.map((name, i) => ({ uid: `default-cat-${name.toLowerCase()}`, cookbookUid: book.uid, name, sortOrder: i, updatedAt: t })) };
+}
+// Saves are queued so a slow write can't land after a newer one.
+let saving = Promise.resolve(), savesPending = 0, saveFailed = false;
+function saveLocal() {
+  if (!S.email || !S.data) return saving;
+  const email = S.email;
+  const value = { name: S.name, data: S.data, bases: S.bases, lastSync: S.lastSync, driveOn: S.driveOn,
+    vaultKey: S.vault.key ? b64encode(S.vault.key) : null, vaultHeader: S.vault.header };
+  savesPending++;
+  saving = saving.then(() => saveAccount(email, value)).then(() => { saveFailed = false; }).catch(() => { saveFailed = true; paintSync(); }).finally(() => { savesPending--; });
+  return saving;
+}
+async function openAccount(email, name) {
+  const saved = await loadAccount(email).catch(() => null);
+  S.email = email; S.name = name || saved?.name || "";
+  S.data = saved?.data ? normalize(saved.data) : seeded();
+  S.bases = saved?.bases || {}; S.lastSync = saved?.lastSync || 0; S.driveOn = !!saved?.driveOn;
+  S.vault = saved?.vaultKey ? { key: b64decode(saved.vaultKey), header: saved.vaultHeader } : { key: null, header: null };
+  S.screen = "app";
+  await setSession({ email, name: S.name }).catch(() => {});
+  await saveLocal();
+}
 async function signIn() {
+  S.error = "";
   try {
-    await requestToken(localHint() ? "" : "select_account");
-    const u = await (await api("https://www.googleapis.com/oauth2/v3/userinfo")).json();
-    S.email = u.email; S.name = u.name || ""; saveHint(u.email);
+    const r = await requestToken(LOGIN_SCOPES, "select_account");
+    const u = await whoAmI(r.access_token);
     S.screen = "loading"; render();
-    await sync();
-    afterFirstSync();
+    await openAccount(u.email, u.name);
+    render();
   } catch (e) { S.screen = "signin"; S.error = e.message; render(); }
 }
-function afterFirstSync() {
-  if (S.unlock) S.screen = "unlock";
-  else if (S.data) S.screen = "app";
-  else if (S.noFile) S.screen = "nofile";
-  else S.screen = "signin"; // keeps S.error for the sign-in screen
-  render();
+async function signOut() {
+  const unsaved = Object.keys(S.bases).length > 0;
+  const msg = !S.driveOn ? "Sign out and remove your recipes from this browser? You have no Google Drive backup here, so they can't be recovered."
+    : unsaved ? "Some changes haven't been backed up to Google Drive and will be lost. Sign out anyway?"
+    : "Sign out and remove the copy in this browser? Your Google Drive backup stays.";
+  if (!confirm(msg)) return;
+  await saving;
+  await forgetAccount(S.email).catch(() => {});
+  location.reload();
 }
-function signOut() {
-  if (Object.keys(S.bases).length && !confirm("Some changes haven't reached Google Drive yet. Sign out anyway?")) return;
-  if (S.token) google.accounts.oauth2.revoke(S.token, () => {});
-  saveHint(null); location.reload();
+/** Needs a click: Google shows its permission window the first time. */
+async function connectDrive() {
+  S.error = "";
+  try {
+    const r = await requestToken(`${LOGIN_SCOPES} ${DRIVE_SCOPE}`, "");
+    if (!google.accounts.oauth2.hasGrantedAllScopes(r, DRIVE_SCOPE)) throw new Error("Google Drive access wasn't allowed, so backup is off.");
+    const u = await whoAmI(r.access_token);
+    if (u.email.toLowerCase() !== S.email.toLowerCase()) throw new Error(`That was ${u.email}. Choose ${S.email} for your backup.`);
+    S.token = r.access_token; S.tokenExp = now() + (r.expires_in - 60) * 1000; S.driveOn = true;
+    await saveLocal();
+    await sync();
+  } catch (e) { S.error = e.message; if (S.screen === "app") render(); }
+}
+const backupNow = () => (hasDrive() ? sync() : connectDrive());
+async function turnOffBackup() {
+  if (!confirm("Stop backing up to Google Drive from this browser? Your recipes stay here, and the Drive file isn't deleted.")) return;
+  S.driveOn = false; S.token = null; S.noFile = false; S.locked = false; S.error = "";
+  await saveLocal(); render();
 }
 
 // ---------- sync ----------
@@ -147,7 +191,25 @@ async function findFile() {
   const r = await (await api(`${DRIVE}?${new URLSearchParams({ q, spaces: "drive", orderBy: "modifiedTime desc", fields: "files(id,version)" })}`)).json();
   return r.files?.[0] || null;
 }
+async function createBackup() {
+  S.error = "";
+  try {
+    if (await findFile()) { S.noFile = false; return sync(); } // never start a second file next to a real one
+    const q = "name = 'Recipe Box' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    const found = await (await api(`${DRIVE}?${new URLSearchParams({ q, spaces: "drive", fields: "files(id)" })}`)).json();
+    const folder = found.files?.[0]?.id || (await (await api(`${DRIVE}?fields=id`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Recipe Box", mimeType: "application/vnd.google-apps.folder" }) })).json()).id;
+    const boundary = "recipebox" + uid().replaceAll("-", "");
+    const meta = JSON.stringify({ name: FILE_NAME, mimeType: "application/json", parents: [folder], description: "Recipe Box backup" });
+    const content = await encodeFile({ ...S.data, updatedAt: now() }, S.vault);
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${content}\r\n--${boundary}--`;
+    await api("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", { method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body });
+    S.noFile = false; S.bases = {}; S.lastSync = now();
+    await saveLocal(); toast("Backed up to Google Drive");
+  } catch (e) { S.error = e.message; }
+  render();
+}
 async function sync() {
+  if (!S.driveOn || !hasDrive()) { paintSync(); return; }
   if (S.running) { S.again = true; return; }
   S.running = true; S.error = ""; paintSync();
   try {
@@ -156,15 +218,14 @@ async function sync() {
     let used = S.bases;
     for (let attempt = 0; ; attempt++) {
       const meta = await findFile();
-      // This app never creates the sync file: an empty search must not start a second copy next to the real one.
+      // No backup yet: creating one is the user's choice (Settings), so an empty search can't start a second copy.
       if (!meta) { S.noFile = true; return; }
       S.fileId = meta.id; S.noFile = false;
       const text = await (await api(`${DRIVE}/${meta.id}?alt=media`, { cache: "no-store" })).text();
       const decoded = await decodeFile(text, S.vault);
-      S.unlock = null;
+      S.unlock = null; S.locked = false;
       if (!decoded.encrypted && S.vault.key && await verifyOff(decoded.data.encryptionOff, S.vault)) S.vault = { key: null, header: null };
       const remote = decoded.data;
-      if (!S.data) S.data = remote;
       const report = merge(S.data, remote, used);
       combinedTotal += report.combined;
       const merged = drainInbox(report.data);
@@ -181,12 +242,14 @@ async function sync() {
     for (const k of startKeys) if (canon(left[k]) === canon(S.bases[k])) delete left[k];
     S.bases = left;
     S.lastSync = now();
+    await saveLocal();
     if (combinedTotal) toast(`Combined your edits with another device (${combinedTotal})`);
   } catch (e) {
     if (e instanceof NeedsUnlock) { S.unlock = e.header; S.screen = "unlock"; }
     else S.error = e.message || "Sync failed";
   } finally {
     S.running = false;
+    saveLocal();
     // Don't redraw under someone typing or using a dialog.
     const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
     if (S.screen === "app" && !typing && !document.querySelector("dialog[open]") && !S.editing) render(); else paintSync();
@@ -199,12 +262,13 @@ function update(fn) {
   if (next === before) return;
   S.bases = recordBases(S.bases, before, next);
   S.data = next;
+  saveLocal();
   clearTimeout(saveTimer); saveTimer = setTimeout(sync, 1500);
   render();
 }
-addEventListener("beforeunload", (e) => { if (Object.keys(S.bases).length) e.preventDefault(); });
-setInterval(() => { if (S.screen === "app" && document.visibilityState === "visible" && S.token && now() < S.tokenExp) sync(); }, 5 * 60000);
-document.addEventListener("visibilitychange", () => { if (S.screen === "app" && document.visibilityState === "visible" && S.token && now() < S.tokenExp && now() - S.lastSync > 60000) sync(); });
+addEventListener("beforeunload", (e) => { if (savesPending > 0) e.preventDefault(); });
+setInterval(() => { if (S.screen === "app" && document.visibilityState === "visible" && hasDrive()) sync(); }, 5 * 60000);
+document.addEventListener("visibilitychange", () => { if (S.screen === "app" && document.visibilityState === "visible" && hasDrive() && now() - S.lastSync > 60000) sync(); });
 
 // ---------- edits ----------
 const setRecipe = (r) => update((d) => {
@@ -232,23 +296,18 @@ function changeFreezer(item, delta) {
 const root = () => document.getElementById("root");
 function render() {
   const r = root(); const y = scrollY;
-  r.replaceChildren(({ signin: signinView, loading: loadingView, unlock: unlockView, nofile: noFileView, app: shellView })[S.screen]());
+  r.replaceChildren(({ signin: signinView, loading: loadingView, unlock: unlockView, app: shellView })[S.screen]());
   if (S.screen === "app") scrollTo(0, y);
 }
 const logo = () => h("img", { src: "../icon.png", alt: "" });
 function signinView() {
   return h("div", { class: "center" }, h("div", { class: "box" }, logo(), h("h1", {}, "Recipe Box"),
-    h("p", { class: "muted" }, "Your recipes, meal plan, grocery list and freezer, from your own Google Drive."),
+    h("p", { class: "muted" }, "Your recipes, meal plan, grocery list and freezer."),
     S.error && h("p", { class: "err", role: "alert" }, S.error),
     GOOGLE_CLIENT_ID ? h("button", { class: "primary", onclick: signIn }, "Sign in with Google") : h("p", { class: "err" }, "Google sign-in isn't set up yet."),
-    h("p", { class: "muted" }, h("small", {}, "Your data goes only between this browser and your Drive. "), h("a", { href: "../privacy/" }, h("small", {}, "Privacy")))));
+    h("p", { class: "muted" }, h("small", {}, "Google is used only to sign you in. Drive backup is optional. "), h("a", { href: "../privacy/" }, h("small", {}, "Privacy")))));
 }
 const loadingView = () => h("div", { class: "center" }, h("div", { class: "box" }, logo(), h("p", {}, "Opening your recipes…")));
-function noFileView() {
-  return h("div", { class: "center" }, h("div", { class: "box" }, logo(), h("h1", {}, "No recipes found"),
-    h("p", { class: "muted" }, `There's no Recipe Box file in ${S.email}'s Google Drive. Sign in on the Android or Mac app first, then come back.`),
-    h("button", { class: "primary", onclick: signIn }, "Check again"), h("button", { class: "link", onclick: signOut }, "Use a different account")));
-}
 function unlockView() {
   let recovery = false, err = "";
   const input = h("input", { type: "password", autocomplete: "current-password", "aria-label": "Passphrase", placeholder: "Passphrase" });
@@ -262,21 +321,27 @@ function unlockView() {
     const key = await unlockKey(S.unlock, input.value, recovery);
     if (!key) { go.disabled = false; go.textContent = "Unlock"; msg.textContent = recovery ? "That recovery key didn't work." : "That passphrase didn't work."; return; }
     S.vault = { key, header: S.unlock }; S.unlock = null; S.screen = "loading"; render();
+    S.screen = "app"; await saveLocal();
     await sync();
-    afterFirstSync();
+    render();
   }
+  const later = () => { S.unlock = null; S.locked = true; S.screen = "app"; render(); };
   setTimeout(() => input.focus());
   return h("div", { class: "center" }, h("div", { class: "box" }, logo(), h("h1", {}, "Unlock your recipes"),
-    h("p", { class: "muted" }, "Your data is encrypted. It's decrypted here in your browser and the key is forgotten when you close this tab."),
-    input, msg, go, sw, h("button", { class: "link", onclick: signOut }, "Sign out")));
+    h("p", { class: "muted" }, "Your Google Drive backup is encrypted. Enter your passphrase once and this browser will remember it until you sign out."),
+    input, msg, go, sw, h("button", { class: "link", onclick: later }, "Not now")));
 }
 function syncText() {
-  if (S.running) return "Syncing…";
+  if (S.running) return "Backing up…";
+  if (saveFailed) return "Couldn't save in this browser";
   if (S.error) return S.error;
-  if (Object.keys(S.bases).length) return "Saving…";
-  return S.lastSync ? "Synced at " + new Date(S.lastSync).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  if (!S.driveOn) return "Saved in this browser";
+  if (S.locked) return "Backup is locked";
+  if (S.noFile) return "No backup yet";
+  if (Object.keys(S.bases).length) return hasDrive() ? "Backing up soon…" : "Saved here, not backed up yet";
+  return S.lastSync ? "Backed up at " + new Date(S.lastSync).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Saved in this browser";
 }
-function paintSync() { const e = document.querySelector(".syncline"); if (e) { e.textContent = syncText(); e.classList.toggle("err", !!S.error && !S.running); } }
+function paintSync() { const e = document.querySelector(".syncline"); if (e) { e.textContent = syncText(); e.classList.toggle("err", (!!S.error || saveFailed) && !S.running); } }
 function shellView() {
   const tabs = [["cookbook", "Cookbook"], ["meals", "Meals"], ["grocery", "Grocery"], ["freezer", "Freezer"], ["settings", "Settings"]];
   const view = S.editing ? editorView() : S.tab === "cookbook" ? (S.recipe && recipeOf(S.recipe) ? recipeView(recipeOf(S.recipe)) : cookbookView())
@@ -285,7 +350,15 @@ function shellView() {
     h("nav", { "aria-label": "Sections" }, h("div", { class: "brand" }, logo(), "Recipe Box"),
       tabs.map(([k, t]) => h("button", { "aria-current": S.tab === k ? "page" : null, onclick: () => { if (S.editing && !confirm("Discard this recipe's changes?")) return; S.editing = null; S.tab = k; S.recipe = null; render(); scrollTo(0, 0); } }, t)),
       h("div", { class: "syncline" + (S.error ? " err" : "") }, syncText())),
-    h("main", {}, view));
+    h("main", {}, backupBanner(), view));
+}
+function backupBanner() {
+  if (S.editing || S.tab === "settings") return null;
+  if (S.driveOn && !S.running && !hasDrive() && Object.keys(S.bases).length)
+    return h("div", { class: "banner" }, h("span", {}, "Your changes are saved in this browser."), h("button", { onclick: connectDrive }, "Back up to Drive"));
+  if (!S.driveOn && !S.data.recipes.length)
+    return h("div", { class: "banner" }, h("span", {}, "Have recipes from the phone or Mac app? Bring them in from your Google Drive backup."), h("button", { class: "primary", onclick: connectDrive }, "Connect Google Drive"));
+  return null;
 }
 
 function filtered() {
@@ -567,13 +640,31 @@ function freezerView() {
       h("button", { class: "icon", "aria-label": `One less ${f.name}`, onclick: () => changeFreezer(f, -1) }, "−"), h("strong", {}, f.portions),
       h("button", { class: "icon", "aria-label": `One more ${f.name}`, onclick: () => changeFreezer(f, 1) }, "+"))) : h("p", { class: "muted" }, "Nothing in the freezer.")));
 }
+function backupPanel() {
+  const status = h("p", { class: S.error ? "err" : "" }, syncText());
+  if (!S.driveOn) return h("section", { class: "panel" }, h("h2", {}, "Google Drive backup"), status,
+    h("p", { class: "muted" }, "Optional. Connect it to back up your recipes and share them with the Android and Mac apps. Recipe Box can only see the files it creates."),
+    h("button", { class: "primary", onclick: connectDrive }, "Connect Google Drive"));
+  return h("section", { class: "panel" }, h("h2", {}, "Google Drive backup"), status, h("p", { class: "muted" }, "Google Drive › Recipe Box › " + FILE_NAME),
+    h("div", { class: "row" },
+      S.noFile && hasDrive() ? h("button", { class: "primary", onclick: createBackup }, "Create backup") : h("button", { class: "primary", disabled: S.running, onclick: backupNow }, hasDrive() ? "Back up now" : "Reconnect and back up"),
+      S.locked && h("button", { onclick: backupNow }, "Unlock backup"),
+      h("button", { class: "danger", onclick: turnOffBackup }, "Turn off backup")));
+}
 function settingsView() {
   return h("div", {}, h("div", { class: "head" }, h("h1", {}, "Settings")),
-    h("section", { class: "panel" }, h("h2", {}, "Account"), S.name && h("p", {}, S.name), h("p", { class: "muted" }, S.email), h("button", { onclick: signOut }, "Sign out")),
-    h("section", { class: "panel" }, h("h2", {}, "Sync"), h("p", {}, syncText()), h("p", { class: "muted" }, "Google Drive › Recipe Box › " + FILE_NAME), h("button", { onclick: sync }, "Sync now")),
+    h("section", { class: "panel" }, h("h2", {}, "Account"), S.name && h("p", {}, S.name), h("p", { class: "muted" }, S.email),
+      h("p", { class: "muted" }, "Signed in with Google. You stay signed in on this browser until you sign out."), h("button", { onclick: signOut }, "Sign out")),
+    backupPanel(),
     h("section", { class: "panel" }, h("h2", {}, "Privacy"),
-      h("p", {}, S.vault.key ? "End-to-end encryption is on. Your data is decrypted only in this tab, and the key is forgotten when you close it." : "End-to-end encryption is off. Turn it on in the Android or Mac app."),
-      h("p", { class: "muted" }, "Recipes aren't stored in this browser. Imports, categories, custom fields and encryption settings are managed in the Android and Mac apps.")));
+      h("p", {}, S.vault.key ? "End-to-end encryption is on for your Drive backup. This browser remembers the key until you sign out." : "End-to-end encryption is off. Turn it on in the Android or Mac app."),
+      h("p", { class: "muted" }, "Your recipes are kept in this browser, so only sign in on a device you trust. Imports, categories, custom fields and encryption settings are managed in the Android and Mac apps.")));
 }
 
-render();
+(async () => {
+  render();
+  const session = await getSession().catch(() => null);
+  if (session?.email) await openAccount(session.email, session.name).catch(() => { S.screen = "signin"; });
+  else S.screen = "signin";
+  render();
+})();
