@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self'; connect-src https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Turn any image into a buildable brick mosaic, right in your browser.">
+<title>StudCraft</title>
+<link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="stylesheet" href="styles.css">
+<script src="js/guard.js"></script>
+<script type="module" src="js/boot.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/icon.png" alt="" width="40" height="40">
+  <div class="brand"><h1>StudCraft</h1><p>Turn any image into a buildable brick mosaic</p></div>
+  <button id="themeBtn" class="btn ghost" type="button">Theme: Auto</button>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="StudCraft sections">
+  <button role="tab" id="tabbtn-studio" aria-controls="tab-studio" aria-selected="true" type="button">Studio</button>
+  <button role="tab" id="tabbtn-parts" aria-controls="tab-parts" aria-selected="false" type="button">Parts</button>
+  <button role="tab" id="tabbtn-guide" aria-controls="tab-guide" aria-selected="false" type="button">Guide</button>
+  <button role="tab" id="tabbtn-export" aria-controls="tab-export" aria-selected="false" type="button">Export</button>
+  <button role="tab" id="tabbtn-ai" aria-controls="tab-ai" aria-selected="false" type="button">AI</button>
+</nav>
+
+<div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+<main>
+<section id="tab-studio" role="tabpanel" aria-labelledby="tabbtn-studio" class="studio">
+  <div class="stack">
+    <div class="card">
+      <h2>Image</h2>
+      <label id="drop" class="drop" for="file">
+        <strong>Open or drop an image</strong>
+        <span>PNG, JPEG, or WebP, up to 25 MB and 48 megapixels. It stays on this device.</span>
+      </label>
+      <input id="file" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp">
+      <p class="label">Samples</p>
+      <div id="samples" class="samples"></div>
+    </div>
+    <div class="card">
+      <h2>Build settings</h2>
+      <label class="field">Size preset<select id="sizePreset"></select></label>
+      <div class="two">
+        <label class="field">Width (studs)<input id="gridW" type="number" min="16" max="96" step="1" value="32" inputmode="numeric"></label>
+        <label class="field">Height (studs)<input id="gridH" type="number" min="16" max="96" step="1" value="32" inputmode="numeric"></label>
+      </div>
+      <button id="fitBtn" class="btn ghost full" type="button">Match image shape</button>
+      <label class="field">Build style<select id="style"></select></label>
+      <label class="field">Backing<select id="backing"></select></label>
+      <label class="field">Palette<select id="palette"></select></label>
+      <label class="field">Rarity<select id="rarity"></select></label>
+      <p id="settingHint" class="hint"></p>
+      <label class="switch"><input id="dither" type="checkbox" checked><span>Dithering</span></label>
+      <label class="switch"><input id="legal" type="checkbox" checked><span>Enforce legal connections</span></label>
+      <label class="field">Color simplification <output id="toleranceOut"></output><input id="tolerance" type="range" min="0" max="32" step="1" value="8"></label>
+      <label class="field">Brightness <output id="brightnessOut"></output><input id="brightness" type="range" min="-0.35" max="0.35" step="0.01" value="0"></label>
+      <label class="field">Contrast <output id="contrastOut"></output><input id="contrast" type="range" min="0.7" max="1.5" step="0.01" value="1.08"></label>
+      <label class="field">Saturation <output id="saturationOut"></output><input id="saturation" type="range" min="0.5" max="1.6" step="0.01" value="1.12"></label>
+    </div>
+  </div>
+  <div class="stack preview-col">
+    <div class="card">
+      <div class="row-between"><h2 id="sourceName">Mosaic preview</h2><span id="busy" class="pill" hidden>Updating…</span></div>
+      <div class="canvas-wrap"><canvas id="mosaic" width="640" height="640" aria-label="Mosaic preview"></canvas></div>
+      <div id="stats" class="stats"></div>
+    </div>
+    <div class="card" id="sourceCard" hidden>
+      <h2>Original</h2>
+      <canvas id="sourceCanvas" class="source" width="320" height="320" aria-label="Original image"></canvas>
+    </div>
+  </div>
+</section>
+
+<section id="tab-parts" role="tabpanel" aria-labelledby="tabbtn-parts" hidden>
+  <div class="card"><h2>Cost</h2><div id="costStats" class="stats"></div><p class="hint">Prices are estimates in USD. Check the seller for current prices.</p></div>
+  <div class="card"><h2>Build checks</h2><div id="checks" class="checks"></div></div>
+  <div class="card"><h2>Parts list</h2><div id="bom" class="bom"></div></div>
+  <div class="card"><h2>Ways to save</h2><div id="suggestions" class="checks"></div></div>
+</section>
+
+<section id="tab-guide" role="tabpanel" aria-labelledby="tabbtn-guide" hidden>
+  <div class="card">
+    <div class="row-between"><h2 id="stepTitle">Build guide</h2><span id="stepCount" class="pill"></span></div>
+    <p id="stepSub" class="hint"></p>
+    <div class="canvas-wrap"><canvas id="stepCanvas" width="640" height="640" aria-label="Build step"></canvas></div>
+    <div class="stepper">
+      <button id="stepPrev" class="btn ghost" type="button">Back</button>
+      <input id="stepRange" type="range" min="1" max="1" value="1" aria-label="Build step">
+      <button id="stepNext" class="btn" type="button">Next</button>
+    </div>
+  </div>
+  <div class="card"><h2>Parts for this step</h2><div id="stepParts" class="bom"></div></div>
+</section>
+
+<section id="tab-export" role="tabpanel" aria-labelledby="tabbtn-export" hidden>
+  <div class="card"><h2>Parts list CSV</h2><div id="csvList" class="list"></div></div>
+  <div class="card"><h2>Marketplace carts</h2><p class="hint">Files are made on this device. Nothing is sent until you upload a file to a store yourself.</p><div id="cartList" class="list"></div></div>
+  <div class="card"><h2>Image and summary</h2><div class="btn-row">
+    <button id="pngBtn" class="btn" type="button">Download mosaic PNG</button>
+    <button id="summaryBtn" class="btn ghost" type="button">Copy build summary</button>
+  </div></div>
+</section>
+
+<section id="tab-ai" role="tabpanel" aria-labelledby="tabbtn-ai" hidden>
+  <div class="card notice">
+    <h2>Your AI, your account</h2>
+    <p>AI is optional. When you press Ask or Create, your prompt and a short mosaic summary go directly from this browser to each AI you enabled, and usage bills to that provider account. Your images are not sent. StudCraft has no server and never sees your keys.</p>
+  </div>
+  <div class="card">
+    <h2>AI keys</h2>
+    <div id="providers" class="providers"></div>
+    <div class="vault">
+      <h3>Remember on this device (optional)</h3>
+      <p class="hint">Keys are held in memory and disappear when you close this tab. To keep them, encrypt them with a passphrase of at least 10 characters. The passphrase is never stored and cannot be recovered.</p>
+      <input id="passphrase" type="password" autocomplete="off" spellcheck="false" aria-label="Passphrase" placeholder="Passphrase">
+      <div class="btn-row">
+        <button id="saveVault" class="btn ghost" type="button">Encrypt and remember</button>
+        <button id="unlockVault" class="btn ghost" type="button">Unlock saved keys</button>
+        <button id="forgetKeys" class="btn danger" type="button">Forget keys</button>
+      </div>
+      <p id="vaultStatus" class="hint" role="status"></p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Ask or create</h2>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <p id="aiNotice" class="hint" role="status"></p>
+    <textarea id="prompt" rows="3" maxlength="4000" placeholder="Ask about your mosaic, or describe an image to create"></textarea>
+    <div class="btn-row">
+      <button id="askBtn" class="btn" type="button">Ask</button>
+      <button id="createBtn" class="btn ghost" type="button">Create image</button>
+      <button id="clearChat" class="btn ghost" type="button">Clear</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <p>Published by DrSeussFreak Inc. <a href="mailto:drseussfreak@gmail.com">drseussfreak@gmail.com</a> · <a href="https://drseussfreak.github.io/studcraft/privacy/" rel="noopener noreferrer">Privacy</a></p>
+  <p>LEGO is a trademark of the LEGO Group, which does not sponsor, authorize, or endorse this app.</p>
+</footer>
+</body>
+</html>
