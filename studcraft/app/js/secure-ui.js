@@ -35,6 +35,8 @@ const friendly = (e) => {
     if (e.kind === 'auth') return 'Reconnect Google Drive and try again.';
     if (e.kind === 'offline') return 'You appear to be offline.';
     if (e.kind === 'retry') return 'Google Drive is busy. Try again shortly.';
+    const detail = [e.status ? `HTTP ${e.status}` : '', e.reason].filter(Boolean).join(', ');
+    return `Google Drive could not finish that.${detail ? ` (${detail})` : ''}`;
   }
   return 'That did not finish. Nothing was changed.';
 };

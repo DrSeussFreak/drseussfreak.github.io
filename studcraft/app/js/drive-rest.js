@@ -6,15 +6,24 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const SAFE_PROP = /^[a-z0-9]{1,64}$/;
 
 export class DriveError extends Error {
-  constructor(kind, status = 0) { super(`Drive ${kind}`); this.kind = kind; this.status = status; }
+  constructor(kind, status = 0, reason = '') { super(`Drive ${kind}`); this.kind = kind; this.status = status; this.reason = reason; }
+}
+
+/** Google's short error code only, such as "invalidQuery". It holds no file or account data. */
+function googleReason(body) {
+  try {
+    const reason = JSON.parse(body)?.error?.errors?.[0]?.reason;
+    return typeof reason === 'string' && /^[A-Za-z0-9_]{1,60}$/.test(reason) ? reason : '';
+  } catch { return ''; }
 }
 
 function classify(status, body) {
-  if (status === 401) return new DriveError('auth', status);
-  if (status === 404) return new DriveError('notfound', status);
-  if (status === 429 || status >= 500) return new DriveError('retry', status);
-  if (status === 403 && /rateLimit|userRateLimit|backendError/.test(body)) return new DriveError('retry', status);
-  return new DriveError('fatal', status);
+  const reason = googleReason(body);
+  if (status === 401) return new DriveError('auth', status, reason);
+  if (status === 404) return new DriveError('notfound', status, reason);
+  if (status === 429 || status >= 500) return new DriveError('retry', status, reason);
+  if (status === 403 && /rateLimit|userRateLimit|backendError/.test(body)) return new DriveError('retry', status, reason);
+  return new DriveError('fatal', status, reason);
 }
 
 export function createDriveRest({ getToken, fetchFn = (...a) => globalThis.fetch(...a) }) {
