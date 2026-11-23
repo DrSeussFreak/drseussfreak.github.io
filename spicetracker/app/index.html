@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#141011">
+  <title>SpiceTracker</title>
+  <link rel="icon" href="icon.png">
+  <style>
+    html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #141011; }
+    #loading { position: fixed; inset: 0; display: grid; place-content: center; gap: 12px; color: #e8dedd;
+      font: 16px system-ui, sans-serif; text-align: center; }
+    #loading img { width: 88px; height: 88px; margin: auto; border-radius: 20px; }
+  </style>
+</head>
+<body>
+  <div id="loading"><img src="icon.png" alt=""><div>Loading SpiceTracker…</div></div>
+  <div id="app"></div>
+  <noscript>SpiceTracker needs JavaScript.</noscript>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="spice-web.js"></script>
+  <script src="spicetracker.js"></script>
+  <script>
+    new MutationObserver((_, o) => {
+      if (document.querySelector("#app").children.length) { document.getElementById("loading").remove(); o.disconnect(); }
+    }).observe(document.querySelector("#app"), { childList: true, subtree: true });
+  </script>
+</body>
+</html>
