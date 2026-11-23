@@ -101,15 +101,15 @@ async function requestToken(scope, prompt) {
   if (!tokenClient) {
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID, scope: LOGIN_SCOPES,
-      callback: (r) => { const w = tokenWait; tokenWait = null; if (r.error) w?.rej(new Error("Sign-in didn't finish")); else w?.res(r); },
-      error_callback: (e) => { const w = tokenWait; tokenWait = null; w?.rej(new Error(e.type === "popup_closed" ? "Sign-in was closed" : "Sign-in didn't finish")); },
+      callback: (r) => { const w = tokenWait; tokenWait = null; if (r.error) w?.rej(new Error(`Google said: ${r.error_description || r.error}`)); else w?.res(r); },
+      error_callback: (e) => { const w = tokenWait; tokenWait = null; w?.rej(new Error(e.type === "popup_closed" ? "Google's window was closed before it finished." : e.type === "popup_failed_to_open" ? "Your browser blocked Google's window. Allow pop-ups for this site and try again." : `Google sign-in failed (${e.type || "unknown"}).`)); },
     });
   }
   return new Promise((res, rej) => { tokenWait = { res, rej }; tokenClient.requestAccessToken({ scope, prompt, login_hint: S.email || undefined }); });
 }
 async function whoAmI(accessToken) {
   const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + accessToken } });
-  if (!r.ok) throw new Error("Google sign-in didn't finish");
+  if (!r.ok) throw new Error(`Google couldn't confirm your account (error ${r.status}).`);
   return r.json();
 }
 const hasDrive = () => !!S.token && now() < S.tokenExp;
@@ -117,7 +117,11 @@ async function api(url, init = {}) {
   if (!hasDrive()) throw new Error("Reconnect Google Drive to back up");
   const r = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: "Bearer " + S.token } });
   if (r.status === 401) { S.token = null; throw new Error("Reconnect Google Drive to back up"); }
-  if (!r.ok) throw new Error(`Google Drive error ${r.status}`);
+  if (!r.ok) {
+    let why = "";
+    try { const j = await r.clone().json(); why = j.error?.errors?.[0]?.reason || j.error?.message || ""; } catch { /* no details */ }
+    throw new Error(`Google Drive error ${r.status}${why ? ` (${why})` : ""}`);
+  }
   return r;
 }
 function seeded() {
@@ -176,7 +180,7 @@ async function connectDrive() {
     S.token = r.access_token; S.tokenExp = now() + (r.expires_in - 60) * 1000; S.driveOn = true;
     await saveLocal();
     await sync();
-  } catch (e) { S.error = e.message; if (S.screen === "app") render(); }
+  } catch (e) { console.error("Drive connect failed:", e.message); S.error = e.message; if (S.screen === "app") render(); }
 }
 const backupNow = () => (hasDrive() ? sync() : connectDrive());
 function unlockBackup() { S.locked = false; return backupNow(); }
@@ -193,6 +197,7 @@ async function findFile() {
   return r.files?.[0] || null;
 }
 async function createBackup() {
+  if (!confirm("Create a new backup from this browser? If you already use Recipe Box on a phone or Mac, cancel: this account's existing backup wasn't found, and a new file could separate your devices.")) return;
   S.error = "";
   try {
     if (await findFile()) { S.noFile = false; return sync(); } // never start a second file next to a real one
@@ -359,6 +364,10 @@ function shellView() {
 }
 function backupBanner() {
   if (S.editing || S.tab === "settings") return null;
+  if (S.error && !S.running)
+    return h("div", { class: "banner", role: "alert" }, h("span", { class: "err" }, "Google Drive didn't connect: " + S.error), h("button", { class: "primary", onclick: connectDrive }, "Try again"));
+  if (S.driveOn && S.noFile && !S.running)
+    return h("div", { class: "banner", role: "alert" }, h("span", { class: "err" }, `Connected, but Recipe Box can't see a backup file in ${S.email}'s Drive. Check that's the account your phone or Mac uses.`), h("button", { onclick: () => { S.tab = "settings"; render(); } }, "Backup settings"));
   if (S.driveOn && S.locked)
     return h("div", { class: "banner" }, h("span", {}, "Your Google Drive backup is encrypted. Enter your passphrase to bring in your recipes."), h("button", { class: "primary", onclick: unlockBackup }, "Unlock backup"));
   if (S.driveOn && !S.running && !hasDrive() && Object.keys(S.bases).length)
