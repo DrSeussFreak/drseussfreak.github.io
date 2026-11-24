@@ -205,3 +205,6 @@ dialog .btn-row { margin-top: 12px; }
 .x-sel { margin: 8px 0 0; }
 .ed-swatch.out { opacity: .4; }
 .x-dialog input[type="search"] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font: inherit; }
+.title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.title-row h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rename-btn { flex: none; padding: 4px 10px; font-size: .8rem; }

@@ -136,6 +136,7 @@ function setSource(image, width, height, name, sampleId = null) {
   state.name = name;
   state.sampleId = sampleId;
   $('sourceName').textContent = name;
+  $('renameProject').disabled = false;
   showSourcePreview();
   const [gw, gh] = fitDimensions(w, h);
   $('gridW').value = gw;
@@ -589,6 +590,23 @@ async function setupEditor() {
     onClose: () => {},
   });
   $('editBtn').addEventListener('click', () => { if (needResult()) editor.open(); });
+  $('renameProject').addEventListener('click', () => {
+    $('renameInput').value = state.name ?? '';
+    $('renameDialog').showModal();
+    $('renameInput').select();
+  });
+  $('renameCancel').addEventListener('click', () => $('renameDialog').close());
+  $('renameForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = cleanText($('renameInput').value, 100);
+    if (!name) return;
+    // Renames only. The image and mosaic stay as they are, and the next encrypted save carries the new name.
+    state.name = name;
+    $('sourceName').textContent = name;
+    $('cloudTitle').value = name;
+    secure?.touch();
+    $('renameDialog').close();
+  });
   $('discardYes').addEventListener('click', () => answerDiscard(true));
   $('discardNo').addEventListener('click', () => answerDiscard(false));
   $('discardDialog').addEventListener('cancel', (e) => { e.preventDefault(); answerDiscard(false); });

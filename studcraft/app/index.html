@@ -85,7 +85,7 @@
   </div>
   <div class="stack preview-col">
     <div class="card">
-      <div class="row-between"><h2 id="sourceName">Mosaic preview</h2><span id="busy" class="pill" hidden>Updating…</span></div>
+      <div class="row-between"><div class="title-row"><h2 id="sourceName">Mosaic preview</h2><button id="renameProject" class="btn ghost rename-btn" type="button" title="Rename project" disabled>Rename</button></div><span id="busy" class="pill" hidden>Updating…</span></div>
       <div id="draftBanner" class="draft" hidden>
         <p id="draftText"></p>
         <div class="btn-row"><button id="draftRestore" class="btn" type="button">Restore edits</button><button id="draftDiscard" class="btn ghost" type="button">Discard</button></div>
@@ -300,6 +300,14 @@
     </div>
   </div>
 </section>
+
+<dialog id="renameDialog" aria-labelledby="renameTitle">
+  <h2 id="renameTitle">Rename project</h2>
+  <form id="renameForm">
+    <label class="field">Name<input id="renameInput" type="text" maxlength="100" autocomplete="off" required></label>
+    <div class="btn-row"><button id="renameSave" class="btn" type="submit">Rename</button><button id="renameCancel" class="btn ghost" type="button">Cancel</button></div>
+  </form>
+</dialog>
 
 <dialog id="discardDialog" aria-labelledby="discardTitle">
   <h2 id="discardTitle">Discard stud edits?</h2>
