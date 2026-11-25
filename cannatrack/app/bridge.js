@@ -94,13 +94,15 @@ window.ctWeb = (() => {
       return { status: r.status, text: await r.text() };
     },
 
-    download(name, contents) {
+    download(name, contents, mime) {
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([contents], { type: 'application/octet-stream' }));
+      a.href = URL.createObjectURL(new Blob([contents], { type: mime || 'application/octet-stream' }));
       a.download = name;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     },
+
+    downloadBytes(name, bytes, mime) { api.download(name, bytes, mime); },
 
     pickFile() {
       return new Promise((resolve, reject) => {
