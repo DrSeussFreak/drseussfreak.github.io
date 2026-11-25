@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0F172A" />
+  <!-- Top-left claimed box (Cobalt) -->
+  <rect x="128" y="128" width="120" height="120" rx="18" fill="#1D4ED8" fill-opacity="0.32" stroke="#60A5FA" stroke-width="4" />
+  <circle cx="188" cy="188" r="18" fill="#60A5FA" />
+  <!-- Bottom-right claimed box (Vermilion) -->
+  <rect x="264" y="264" width="120" height="120" rx="18" fill="#DC2626" fill-opacity="0.32" stroke="#F87171" stroke-width="4" />
+  <rect x="308" y="308" width="32" height="32" rx="6" fill="#F87171" />
+  <!-- Placed lines -->
+  <g stroke-linecap="round" stroke-width="18">
+    <!-- Cobalt box perimeter -->
+    <line x1="112" y1="112" x2="256" y2="112" stroke="#60A5FA" />
+    <line x1="112" y1="112" x2="112" y2="256" stroke="#60A5FA" />
+    <line x1="256" y1="112" x2="256" y2="256" stroke="#60A5FA" />
+    <line x1="112" y1="256" x2="256" y2="256" stroke="#60A5FA" />
+    <!-- Vermilion box perimeter -->
+    <line x1="256" y1="256" x2="400" y2="256" stroke="#F87171" />
+    <line x1="256" y1="256" x2="256" y2="400" stroke="#F87171" />
+    <line x1="400" y1="256" x2="400" y2="400" stroke="#F87171" />
+    <line x1="256" y1="400" x2="400" y2="400" stroke="#F87171" />
+    <!-- Subtle dashed open lines -->
+    <line x1="256" y1="112" x2="400" y2="112" stroke="#475569" stroke-width="10" stroke-dasharray="12 18" />
+    <line x1="400" y1="112" x2="400" y2="256" stroke="#475569" stroke-width="10" stroke-dasharray="12 18" />
+    <line x1="112" y1="256" x2="112" y2="400" stroke="#475569" stroke-width="10" stroke-dasharray="12 18" />
+    <line x1="112" y1="400" x2="256" y2="400" stroke="#475569" stroke-width="10" stroke-dasharray="12 18" />
+  </g>
+  <!-- 3x3 Anchor Dots -->
+  <g fill="#F8FAFC">
+    <circle cx="112" cy="112" r="20" />
+    <circle cx="256" cy="112" r="20" />
+    <circle cx="400" cy="112" r="20" />
+    <circle cx="112" cy="256" r="20" />
+    <circle cx="256" cy="256" r="20" />
+    <circle cx="400" cy="256" r="20" />
+    <circle cx="112" cy="400" r="20" />
+    <circle cx="256" cy="400" r="20" />
+    <circle cx="400" cy="400" r="20" />
+  </g>
+</svg>
