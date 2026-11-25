@@ -63,6 +63,12 @@
       <button id="fitBtn" class="btn ghost full" type="button">Match image shape</button>
       <label class="field">Build style<select id="style"></select></label>
       <label class="field">Backing<select id="backing"></select></label>
+      <div id="platePanel" class="plate-panel" hidden>
+        <span class="plate-label">Plate color</span>
+        <div id="plateSwatches" class="plate-swatches" role="radiogroup" aria-label="Plate color"></div>
+        <label class="switch"><input id="plateShow" type="checkbox" checked><span>Let the plate show through</span></label>
+        <p id="plateHint" class="hint"></p>
+      </div>
       <label class="field">Palette<select id="palette"></select></label>
       <label class="field">Rarity<select id="rarity"></select></label>
       <p id="settingHint" class="hint"></p>

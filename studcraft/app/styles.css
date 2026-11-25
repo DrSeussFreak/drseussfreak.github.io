@@ -208,3 +208,12 @@ dialog .btn-row { margin-top: 12px; }
 .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .title-row h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rename-btn { flex: none; padding: 4px 10px; font-size: .8rem; }
+.plate-panel { display: grid; gap: 8px; }
+.plate-label { font-size: .85rem; font-weight: 600; }
+.plate-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.plate-swatch { width: 30px; height: 30px; padding: 3px; border-radius: 50%; border: 1px solid var(--line); background: none; cursor: pointer; }
+.plate-swatch canvas { display: block; width: 100%; height: 100%; }
+.plate-swatch[aria-checked="true"] { border: 3px solid var(--accent, var(--ink)); padding: 1px; }
+.plate-match { display: flex; align-items: center; gap: 8px; flex-basis: 100%; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--ink); cursor: pointer; text-align: left; }
+.plate-match[aria-checked="true"] { border: 2px solid var(--accent, var(--ink)); }
+.plate-match .swatch { flex: none; }

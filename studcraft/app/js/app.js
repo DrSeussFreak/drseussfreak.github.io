@@ -226,6 +226,40 @@ function syncPreset() {
   preset.value = [...preset.options].some((o) => o.value === v) ? v : 'custom';
 }
 
+/** Plate color and show-through for plate backings. Match background is the default. */
+function renderPlate() {
+  const backing = state.catalog?.backings.find((b) => b.id === $('backing').value);
+  const choices = backing?.plateColors ?? [];
+  const wall = $('style').value === 'STACKED_BRICK_WALL';
+  $('platePanel').hidden = wall || !choices.length || !extras;
+  if ($('platePanel').hidden) return;
+  const { id: manual, show } = extras.plate();
+  const r = state.result;
+  const matched = r && r.plateColor !== undefined ? r.plateColor : null;
+  // Swatches are drawn on canvas, like the editor's, because the page's CSP blocks inline styles.
+  const dot = (id, size, cls) => {
+    const face = el('canvas', { width: String(size), height: String(size), class: cls, 'aria-hidden': 'true' });
+    const c = state.colors.get(id);
+    const g = face.getContext('2d');
+    if (c && g) { g.fillStyle = `rgb(${c.r},${c.g},${c.b})`; g.beginPath(); g.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); g.fill(); }
+    return face;
+  };
+  const swatch = (id) => dot(id, 20, 'swatch');
+  const name = (id) => state.colors.get(id)?.name ?? 'plate';
+  const isManual = manual !== null && choices.includes(manual);
+  const match = el('button', { type: 'button', class: 'plate-match', role: 'radio', 'aria-checked': String(!isManual), onclick: () => { if (isManual) extras.setPlate(null); } },
+    !isManual && matched !== null ? swatch(matched) : null,
+    el('span', { text: matched !== null && !isManual ? `Match background (recommended): ${name(matched)}` : 'Match background (recommended)' }));
+  const buttons = choices.map((id) => {
+    const face = dot(id, 24, 'plate-dot');
+    return el('button', { type: 'button', class: 'plate-swatch', role: 'radio', title: `${name(id)} plate`, 'aria-label': `${name(id)} plate`, 'aria-checked': String(isManual && manual === id), onclick: () => extras.setPlate(id) }, face);
+  });
+  $('plateSwatches').replaceChildren(match, ...buttons);
+  $('plateShow').checked = show;
+  const saved = r?.plateSaved ?? 0;
+  $('plateHint').textContent = !show ? 'Every stud gets a piece.' : saved > 0 ? `Saves ${saved.toLocaleString('en-US')} studs. Studs in the plate color are left off.` : 'Studs in the plate color are left off.';
+}
+
 function syncLabels() {
   const signed = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
   $('toleranceOut').textContent = String($('tolerance').value);
@@ -234,6 +268,7 @@ function syncLabels() {
   $('saturationOut').textContent = `${Math.round(Number($('saturation').value) * 100)}%`;
   const wall = $('style').value === 'STACKED_BRICK_WALL';
   $('backing').disabled = wall;
+  renderPlate();
   const style = state.catalog?.styles.find((s) => s.id === $('style').value);
   const palette = state.catalog?.palettes.find((s) => s.id === $('palette').value);
   $('settingHint').textContent = [style?.description, palette?.description].filter(Boolean).join('. ');
@@ -372,6 +407,7 @@ function renderAll() {
     stat(`${r.validation.score}%`, 'build score'),
   );
   renderSetParts(r);
+  renderPlate();
   extras?.refresh();
   $('costStats').replaceChildren(
     stat(money(r.pricing.pab), r.setReport ? 'Additional, Pick a Brick' : 'Pick a Brick'),
@@ -1202,6 +1238,7 @@ function wire() {
     el('img', { src: `assets/sample-${s.id}.jpg`, alt: '', loading: 'lazy' }), el('span', { text: s.title }))));
 
   for (const id of ['style', 'backing', 'palette', 'rarity', 'dither', 'legal']) $(id).addEventListener('change', () => scheduleConvert(true));
+  $('plateShow').addEventListener('change', (e) => extras?.setShow(e.target.checked));
   for (const id of ['tolerance', 'brightness', 'contrast', 'saturation']) $(id).addEventListener('input', () => scheduleConvert());
   for (const id of ['gridW', 'gridH']) {
     $(id).addEventListener('change', () => { $(id).value = readInt(id, 32); syncPreset(); scheduleConvert(true); });

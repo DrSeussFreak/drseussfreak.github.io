@@ -4,7 +4,7 @@ import { drawMosaic } from './render.js';
 
 export const CREDIT = 'Set inventory data derived from the Rebrickable database (rebrickable.com). LEGO is a trademark of the LEGO Group, which does not sponsor or endorse this app.';
 const KEY = 'studcraft.sets';
-const blank = () => ({ mode: 'B', top: 0, right: 0, bottom: 0, left: 0, color: 1, fit: 'F', sets: {}, on: false, spares: false, stud: 'PREFER_ROUND', sharpen: 0, clarity: 0, separate: false });
+const blank = () => ({ mode: 'B', top: 0, right: 0, bottom: 0, left: 0, color: 1, fit: 'F', sets: {}, on: false, spares: false, stud: 'PREFER_ROUND', sharpen: 0, clarity: 0, separate: false, plate: null, show: true });
 
 export function encodeExtras(x) {
   const out = [];
@@ -16,6 +16,8 @@ export function encodeExtras(x) {
   if (x.stud !== 'PREFER_ROUND') out.push(`t=${x.stud}`);
   if (x.sharpen) out.push(`h=${x.sharpen}`);
   if (x.clarity) out.push(`c=${x.clarity}`);
+  if (x.plate !== null && x.plate !== undefined) out.push(`b=${x.plate}`);
+  if (x.show === false) out.push('w=0');
   return out.join(';');
 }
 
@@ -33,6 +35,8 @@ export function decodeExtras(text) {
     else if (part[0] === 't') x.stud = value;
     else if (part[0] === 'h') x.sharpen = +value;
     else if (part[0] === 'c') x.clarity = +value;
+    else if (part[0] === 'b') x.plate = +value;
+    else if (part[0] === 'w') x.show = value !== '0';
   }
   return x;
 }
@@ -234,6 +238,10 @@ export function createExtras({ el, engine, store, colors, catalog, getSize, getS
       if ($('xDialog').open) renderAll();
     },
     refresh() { if ($('xDialog').open) { renderPool(); drawPreview(); } renderSummary(); },
+    /** Plate backing color (null matches the background) and whether matching studs are left off. */
+    plate: () => ({ id: x.plate, show: x.show }),
+    setPlate(id) { x.plate = id; commit(0); },
+    setShow(on) { x.show = on; commit(0); },
     cancelPending() { clearTimeout(timer); },
   };
 }

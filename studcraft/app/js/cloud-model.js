@@ -7,7 +7,7 @@ export const SAMPLE_KEYS = Object.freeze({ wave: 'WAVE', toucan: 'TOUCAN', astro
 const SAMPLE_BY_KEY = Object.freeze({ WAVE: 'wave', TOUCAN: 'toucan', ASTRONAUT: 'astronaut' });
 
 const STYLES = ['ROUND_TILES_ART', 'ROUND_PLATES_STUDS', 'OPTIMIZED_MULTI_PLATE', 'STACKED_BRICK_WALL'];
-const BACKINGS = ['TECHNIC_FRAMES_16X16', 'BASEPLATES_32X32', 'SELF_SUPPORTING_WALL'];
+const BACKINGS = ['PLATES_16X16', 'TECHNIC_FRAMES_16X16', 'BASEPLATES_32X32', 'SELF_SUPPORTING_WALL'];
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const UNSAFE_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f​-‏‪-‮⁠-⁩﻿]/g;
 

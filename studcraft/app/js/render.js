@@ -49,6 +49,8 @@ export function drawMosaic(canvas, res, colors) {
   ctx.fillStyle = '#14181f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const p = res.pieces;
+  // A colored plate backing shows wherever a stud was left off.
+  if (res.plateColor !== undefined) for (let i = 0; i < p.length; i += STRIDE) if (p[i + 6] === 0) drawPiece(ctx, p, i, cell, colors);
   for (let i = 0; i < p.length; i += STRIDE) if (p[i + 6] === 1) drawPiece(ctx, p, i, cell, colors);
 }
 
